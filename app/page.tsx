@@ -19,6 +19,7 @@ import {
   Mic,
   X,
   Code,
+  Copy,
 } from "lucide-react"
 import { captureWebsiteScreenshot, validateUrl, normalizeUrl } from "@/lib/screenshot-service"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -72,6 +73,7 @@ export default function FigmaAIApp() {
   const [currentView, setCurrentView] = useState<'design' | 'code'>('design')
   const [imageHistory, setImageHistory] = useState<string[]>([])
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1)
+  const [isCopyingPrompt, setIsCopyingPrompt] = useState(false)
   const canvasRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -819,6 +821,76 @@ export default function FigmaAIApp() {
     }
   }
 
+  const handleCopyPrompt = async () => {
+    if (!importedImage || currentHistoryIndex < 0) {
+      setError('No image available to copy prompt for')
+      setTimeout(() => setError(null), 5000)
+      return
+    }
+
+    setIsCopyingPrompt(true)
+    setError(null)
+
+    try {
+      // Make API call to get prompt data
+      const formData = new FormData()
+      formData.append('request_id', `pixie_copy_${Date.now()}`)
+      formData.append('image_id', String(currentHistoryIndex + 1))
+
+      
+      const response = await fetch('https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/prompt', {
+        method: 'POST',
+        headers: {
+          'X-API-Key': 'AIzaSyCFUYBEcu7HQ2tPWVWJjeSBOjQ24qS56kE'
+        },
+        body: formData
+      })
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+      }
+
+      const promptData = await response.json()
+      
+      // Format the data for clipboard
+      let clipboardContent = ''
+      
+      if (promptData.instructions) {
+        clipboardContent += `Instructions:\n${promptData.instructions}\n\n`
+      }
+      
+      if (promptData.assets && promptData.assets.length > 0) {
+        clipboardContent += 'Assets:\n'
+        promptData.assets.forEach((asset: any, index: number) => {
+          clipboardContent += `${index + 1}. ${asset.filename || `asset_${index + 1}`}\n`
+          if (asset.data) {
+            clipboardContent += `   Data: ${asset.data.substring(0, 100)}...\n`
+          }
+        })
+      }
+
+      // Copy to clipboard
+      await navigator.clipboard.writeText(clipboardContent)
+      
+      // Show success message
+      setShowSuccess(true)
+      setTimeout(() => {
+        setShowSuccess(false)
+      }, 3000)
+
+    } catch (err) {
+      console.error("Copy prompt error:", err)
+      setError(err instanceof Error ? err.message : "Failed to copy prompt")
+      
+      // Clear error after 5 seconds
+      setTimeout(() => {
+        setError(null)
+      }, 5000)
+    } finally {
+      setIsCopyingPrompt(false)
+    }
+  }
+
 
   return (
     <div className="h-screen flex flex-col bg-[#f8f9fa] text-foreground">
@@ -999,7 +1071,24 @@ export default function FigmaAIApp() {
               >
                 Generate Code
               </Button>
-              <Button variant="ghost" className="text-sm px-3 h-8 bg-green-50 text-green-600 hover:bg-green-100">Copy Prompt</Button>
+              <Button 
+                variant="ghost" 
+                className="text-sm px-3 h-8 bg-green-50 text-green-600 hover:bg-green-100"
+                onClick={handleCopyPrompt}
+                disabled={isCopyingPrompt || !importedImage || currentHistoryIndex < 0}
+              >
+                {isCopyingPrompt ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Copying...
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy Prompt
+                  </>
+                )}
+              </Button>
             </div>
           </div>
 
