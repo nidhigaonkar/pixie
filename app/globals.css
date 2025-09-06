@@ -4,76 +4,76 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Updated color tokens to match Figma-inspired design brief */
-  --background: #1f2937;
-  --foreground: #ffffff;
-  --card: #2d3748;
-  --card-foreground: #ffffff;
-  --popover: #2d3748;
-  --popover-foreground: #ffffff;
-  --primary: #8b5cf6;
+  /* Light theme matching the reference design */
+  --background: #f8f9fa;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a1a;
+  --primary: #0066ff;
   --primary-foreground: #ffffff;
   --secondary: #f1f5f9;
   --secondary-foreground: #6b7280;
-  --muted: #4b5563;
-  --muted-foreground: #ffffff;
-  --accent: #8b5cf6;
+  --muted: #f3f4f6;
+  --muted-foreground: #6b7280;
+  --accent: #0066ff;
   --accent-foreground: #ffffff;
-  --destructive: #be123c;
+  --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-  --border: #ffffff;
-  --input: #2d3748;
-  --ring: rgba(139, 92, 246, 0.5);
-  --chart-1: #4f46e5;
-  --chart-2: #9333ea;
-  --chart-3: #ec4899;
-  --chart-4: #fb7185;
-  --chart-5: #fbbf24;
+  --border: #e2e8f0;
+  --input: #ffffff;
+  --ring: rgba(0, 102, 255, 0.3);
+  --chart-1: #0066ff;
+  --chart-2: #3b82f6;
+  --chart-3: #60a5fa;
+  --chart-4: #93c5fd;
+  --chart-5: #bfdbfe;
   --radius: 0.5rem;
-  --sidebar: #2d3748;
-  --sidebar-foreground: #ffffff;
-  --sidebar-primary: #4b5563;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #8b5cf6;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1a1a1a;
+  --sidebar-primary: #f3f4f6;
+  --sidebar-primary-foreground: #1a1a1a;
+  --sidebar-accent: #0066ff;
   --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #f1f5f9;
-  --sidebar-ring: rgba(139, 92, 246, 0.5);
+  --sidebar-border: #e2e8f0;
+  --sidebar-ring: rgba(0, 102, 255, 0.3);
 }
 
 .dark {
-  /* Updated dark theme tokens to match design brief */
-  --background: #1f2937;
+  /* Dark theme variant */
+  --background: #1a1a1a;
   --foreground: #ffffff;
-  --card: #2d3748;
+  --card: #262626;
   --card-foreground: #ffffff;
-  --popover: #2d3748;
+  --popover: #262626;
   --popover-foreground: #ffffff;
-  --primary: #8b5cf6;
+  --primary: #0066ff;
   --primary-foreground: #ffffff;
-  --secondary: #f1f5f9;
-  --secondary-foreground: #6b7280;
-  --muted: #4b5563;
-  --muted-foreground: #ffffff;
-  --accent: #8b5cf6;
+  --secondary: #363636;
+  --secondary-foreground: #a3a3a3;
+  --muted: #363636;
+  --muted-foreground: #a3a3a3;
+  --accent: #0066ff;
   --accent-foreground: #ffffff;
-  --destructive: #be123c;
+  --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-  --border: #ffffff;
-  --input: #2d3748;
-  --ring: rgba(139, 92, 246, 0.5);
-  --chart-1: #4f46e5;
-  --chart-2: #9333ea;
-  --chart-3: #ec4899;
-  --chart-4: #fb7185;
-  --chart-5: #fbbf24;
-  --sidebar: #2d3748;
+  --border: #363636;
+  --input: #262626;
+  --ring: rgba(0, 102, 255, 0.3);
+  --chart-1: #0066ff;
+  --chart-2: #3b82f6;
+  --chart-3: #60a5fa;
+  --chart-4: #93c5fd;
+  --chart-5: #bfdbfe;
+  --sidebar: #262626;
   --sidebar-foreground: #ffffff;
-  --sidebar-primary: #4b5563;
+  --sidebar-primary: #363636;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #8b5cf6;
+  --sidebar-accent: #0066ff;
   --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #f1f5f9;
-  --sidebar-ring: rgba(139, 92, 246, 0.5);
+  --sidebar-border: #363636;
+  --sidebar-ring: rgba(0, 102, 255, 0.3);
 }
 
 @theme inline {
@@ -126,19 +126,27 @@
   }
 }
 
-/* Added custom styles for canvas and selection */
+/* Custom styles matching the reference design */
 .canvas-grid {
-  background-image: linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
-  background-size: 20px 20px;
+  background-color: #f8f9fa;
 }
 
 .selection-border {
-  border: 2px solid #8b5cf6;
-  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.3);
+  border: 2px solid #0066ff;
+  box-shadow: 0 0 0 1px rgba(0, 102, 255, 0.2);
 }
 
 .element-hover {
-  border: 1px solid rgba(139, 92, 246, 0.5);
-  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(0, 102, 255, 0.4);
+  background: rgba(0, 102, 255, 0.05);
+}
+
+/* Additional styling for the clean design */
+.rounded-button {
+  border-radius: 0.375rem;
+  transition: all 0.15s ease-in-out;
+}
+
+.rounded-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
 }
