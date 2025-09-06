@@ -85,6 +85,8 @@ export default function FigmaAIApp() {
   const [resizeHandle, setResizeHandle] = useState<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null>(null)
   const [resizeStart, setResizeStart] = useState<{ x: number; y: number } | null>(null)
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | null>(null)
+  const [selectionPrompt, setSelectionPrompt] = useState("")
+  const [isProcessingSelection, setIsProcessingSelection] = useState(false)
   const canvasRef = useRef<HTMLDivElement>(null)
 
   // Handle zoom with mouse wheel
@@ -290,11 +292,17 @@ export default function FigmaAIApp() {
         e.preventDefault()
         setZoom(100)
       }
+
+      // Enter to submit selection
+      if (e.key === "Enter" && selectionBox && selectedAspectRatio && selectionPrompt.trim()) {
+        e.preventDefault()
+        handleSelectionSubmit()
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [elements])
+  }, [elements, selectionBox, selectedAspectRatio, selectionPrompt])
 
   const handleImportWebsite = async () => {
     if (!websiteUrl) return
@@ -378,7 +386,11 @@ export default function FigmaAIApp() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !e.repeat) {
+      // Check if the target is an input field or textarea
+      const target = e.target as HTMLElement
+      const isInputField = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === 'true'
+      
+      if (e.code === 'Space' && !e.repeat && !isInputField) {
         e.preventDefault()
         setIsSpacePressed(true)
       }
@@ -388,7 +400,11 @@ export default function FigmaAIApp() {
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
+      // Check if the target is an input field or textarea
+      const target = e.target as HTMLElement
+      const isInputField = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === 'true'
+      
+      if (e.code === 'Space' && !isInputField) {
         e.preventDefault()
         setIsSpacePressed(false)
       }
@@ -628,6 +644,131 @@ export default function FigmaAIApp() {
     }, 3000)
   }
 
+  const handleSelectionSubmit = async () => {
+    if (!selectionBox || !selectedAspectRatio || !importedImage || !selectionPrompt.trim()) {
+      return
+    }
+
+    setIsProcessingSelection(true)
+    setError(null)
+
+    try {
+      // Create a canvas to extract the selected area
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        throw new Error('Could not create canvas context')
+      }
+
+      // Load the image
+      const img = new Image()
+      await new Promise((resolve, reject) => {
+        img.onload = resolve
+        img.onerror = reject
+        img.src = importedImage
+      })
+
+      // Set canvas dimensions to match selection
+      canvas.width = selectionBox.width
+      canvas.height = selectionBox.height
+
+      // Draw the selected portion of the image
+      ctx.drawImage(
+        img,
+        selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height,
+        0, 0, selectionBox.width, selectionBox.height
+      )
+
+      // Convert canvas to blob
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob)
+        }, 'image/png')
+      })
+
+      // Prepare form data
+      const formData = new FormData()
+      formData.append('prompt', selectionPrompt.trim())
+      formData.append('image', blob, 'selection.png')
+      formData.append('aspect_ratio', `${selectedAspectRatio.ratio}:1`)
+      formData.append('request_id', `pixie_${Date.now()}`)
+      formData.append('numberOfImages', '1')
+
+      // Make API call
+      const response = await fetch('https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/apply', {
+        method: 'POST',
+        headers: {
+          'X-API-Key': 'AIzaSyCFUYBEcu7HQ2tPWVWJjeSBOjQ24qS56kE'
+        },
+        body: formData
+      })
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+      }
+
+      const result = await response.blob()
+      const resultImageUrl = URL.createObjectURL(result)
+
+      // Update the original image by replacing the selected area with the result
+      const originalImg = new Image()
+      await new Promise((resolve, reject) => {
+        originalImg.onload = resolve
+        originalImg.onerror = reject
+        originalImg.src = importedImage
+      })
+
+      const resultImg = new Image()
+      await new Promise((resolve, reject) => {
+        resultImg.onload = resolve
+        resultImg.onerror = reject
+        resultImg.src = resultImageUrl
+      })
+
+      // Create a new canvas with the original image dimensions
+      const finalCanvas = document.createElement('canvas')
+      const finalCtx = finalCanvas.getContext('2d')
+      if (!finalCtx) {
+        throw new Error('Could not create final canvas context')
+      }
+
+      finalCanvas.width = originalImg.width
+      finalCanvas.height = originalImg.height
+
+      // Draw the original image
+      finalCtx.drawImage(originalImg, 0, 0)
+
+      // Draw the modified selection over it
+      finalCtx.drawImage(
+        resultImg,
+        selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height
+      )
+
+      // Convert final canvas to data URL and update the image
+      const finalImageUrl = finalCanvas.toDataURL()
+      setImportedImage(finalImageUrl)
+
+      // Clear selection and prompt
+      setSelectionBox(null)
+      setSelectedAspectRatio(null)
+      setSelectionPrompt("")
+
+      // Clean up blob URL
+      URL.revokeObjectURL(resultImageUrl)
+
+    } catch (err) {
+      console.error("Selection processing error:", err)
+      setError(err instanceof Error ? err.message : "Failed to process selection")
+      
+      // Clear error after 5 seconds
+      setTimeout(() => {
+        setError(null)
+      }, 5000)
+    } finally {
+      setIsProcessingSelection(false)
+    }
+  }
+
   const selectedElements = elements.filter((el) => el.selected)
   const selectedElement = selectedElements[0] // For single selection display
 
@@ -708,7 +849,7 @@ export default function FigmaAIApp() {
               <Button variant="ghost" className="text-sm px-3 h-8 bg-blue-50 text-blue-600 hover:bg-blue-100">Export</Button>
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="sm" className="h-8 bg-blue-50 text-blue-600 hover:bg-blue-100 border-b-2 border-blue-500">Design</Button>
-                <Button variant="ghost" size="sm" className="h-8 text-gray-600 hover:bg-gray-100">Animation</Button>
+                
               </div>
             </div>
           </div>
@@ -977,6 +1118,49 @@ export default function FigmaAIApp() {
                     </Button>
                   ))}
                 </div>
+
+                {/* Selection Prompt Input */}
+                {selectedAspectRatio && (
+                  <div className="border-t border-gray-200 pt-4">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Describe the change</div>
+                    <Input
+                      placeholder="e.g. change the text from hello to hey there!"
+                      value={selectionPrompt}
+                      onChange={(e) => setSelectionPrompt(e.target.value)}
+                      className="w-full mb-3"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && selectionPrompt.trim()) {
+                          e.preventDefault()
+                          handleSelectionSubmit()
+                        }
+                      }}
+                    />
+                    <Button
+                      onClick={handleSelectionSubmit}
+                      disabled={!selectionPrompt.trim() || isProcessingSelection || !selectionBox}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      {isProcessingSelection ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          Apply Changes
+                        </>
+                      )}
+                    </Button>
+                    <div className="text-xs text-gray-500 mt-2">
+                      {selectionBox ? (
+                        <>Press <kbd className="bg-gray-200 px-1 py-0.5 rounded">Enter</kbd> to apply</>
+                      ) : (
+                        <>Create a selection on the image to enable</>
+                      )}
+                    </div>
+                  </div>
+                )}
                 
                 <div className="border-t border-gray-200 pt-4">
                   <div className="text-sm space-y-2">
