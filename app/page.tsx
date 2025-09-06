@@ -70,6 +70,8 @@ export default function FigmaAIApp() {
   const [showSuccess, setShowSuccess] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [currentView, setCurrentView] = useState<'design' | 'code'>('design')
+  const [imageHistory, setImageHistory] = useState<string[]>([])
+  const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1)
   const canvasRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -347,8 +349,33 @@ export default function FigmaAIApp() {
       const result = await captureWebsiteScreenshot(normalizedUrl)
 
       if (result.success) {
-        setImportedImage(result.screenshot)
+        const newImage = result.screenshot
+        
+        // Calculate optimal zoom to fit image in canvas
+        const img = new Image()
+        await new Promise((resolve) => {
+          img.onload = resolve
+          img.src = newImage
+        })
+        
+        if (canvasRef.current) {
+          const canvas = canvasRef.current
+          const canvasWidth = canvas.clientWidth - 64 // Account for padding
+          const canvasHeight = canvas.clientHeight - 64
+          
+          const scaleX = canvasWidth / img.width
+          const scaleY = canvasHeight / img.height
+          const optimalScale = Math.min(scaleX, scaleY, 1) // Don't zoom in, only zoom out
+          
+          const optimalZoom = Math.max(25, Math.min(100, optimalScale * 100)) // Keep within zoom bounds
+          setZoom(optimalZoom)
+        }
+        
+        setImportedImage(newImage)
         setImportMetadata(result.metadata)
+        // Add to history
+        setImageHistory(prev => [...prev.slice(0, currentHistoryIndex + 1), newImage])
+        setCurrentHistoryIndex(prev => prev + 1)
         // Image position is fixed at 32, 32
         setError(null)
       } else {
@@ -527,8 +554,6 @@ export default function FigmaAIApp() {
 
 
   const handleFileUpload = async () => {
-    setIsUploading(true)
-    
     try {
       // Create a file input element
       const input = document.createElement('input')
@@ -537,28 +562,35 @@ export default function FigmaAIApp() {
       
       // Create a promise to handle the file selection
       const fileSelected = new Promise((resolve, reject) => {
-        input.onchange = (e) => {
-          const file = (e.target as HTMLInputElement).files?.[0]
-          if (!file) {
-            reject(new Error('No file selected'))
-            return
-          }
+        input.onchange = async (e) => {
+          try {
+            const file = (e.target as HTMLInputElement).files?.[0]
+            if (!file) {
+              reject(new Error('No file selected'))
+              return
+            }
 
-          // Validate file type
-          const validImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-          if (!validImageTypes.includes(file.type)) {
-            reject(new Error('Please select a valid image file (JPEG, PNG, GIF, or WebP)'))
-            return
-          }
+            // Start loading state after file is selected
+            setIsUploading(true)
 
-          // Validate file size (max 5MB)
-          const maxSize = 5 * 1024 * 1024 // 5MB in bytes
-          if (file.size > maxSize) {
-            reject(new Error('Image file size must be less than 5MB'))
-            return
-          }
+            // Validate file type
+            const validImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+            if (!validImageTypes.includes(file.type)) {
+              reject(new Error('Please select a valid image file (JPEG, PNG, GIF, or WebP)'))
+              return
+            }
 
-          resolve(file)
+            // Validate file size (max 5MB)
+            const maxSize = 5 * 1024 * 1024 // 5MB in bytes
+            if (file.size > maxSize) {
+              reject(new Error('Image file size must be less than 5MB'))
+              return
+            }
+
+            resolve(file)
+          } catch (error) {
+            reject(error)
+          }
         }
         
         // Handle cancel
@@ -585,11 +617,36 @@ export default function FigmaAIApp() {
         reader.readAsDataURL(file as Blob)
       })
       
+      // Calculate optimal zoom to fit image in canvas
+      const img = new Image()
+      await new Promise((resolve) => {
+        img.onload = resolve
+        img.src = imageDataUrl
+      })
+      
+      if (canvasRef.current) {
+        const canvas = canvasRef.current
+        const canvasWidth = canvas.clientWidth - 64 // Account for padding
+        const canvasHeight = canvas.clientHeight - 64
+        
+        const scaleX = canvasWidth / img.width
+        const scaleY = canvasHeight / img.height
+        const optimalScale = Math.min(scaleX, scaleY, 1) // Don't zoom in, only zoom out
+        
+        const optimalZoom = Math.max(25, Math.min(100, optimalScale * 100)) // Keep within zoom bounds
+        setZoom(optimalZoom)
+      }
+      
+      // Add to history
+      setImageHistory(prev => [...prev.slice(0, currentHistoryIndex + 1), imageDataUrl])
+      setCurrentHistoryIndex(prev => prev + 1)
       setImportedImage(imageDataUrl)
       // Image position is fixed at 32, 32
       setError(null)
+      setIsUploading(false)
       
     } catch (err: unknown) {
+      setIsUploading(false)
       if (err instanceof Error) {
         // Don't show error for cancelled uploads
         if (err.message !== 'File selection cancelled') {
@@ -607,8 +664,6 @@ export default function FigmaAIApp() {
           setError(null)
         }, 5000)
       }
-    } finally {
-      setIsUploading(false)
     }
   }
 
@@ -728,6 +783,9 @@ export default function FigmaAIApp() {
 
       // Convert final canvas to data URL and update the image
       const finalImageUrl = finalCanvas.toDataURL()
+      // Add to history
+      setImageHistory(prev => [...prev.slice(0, currentHistoryIndex + 1), finalImageUrl])
+      setCurrentHistoryIndex(prev => prev + 1)
       setImportedImage(finalImageUrl)
 
       // Add to history
@@ -765,16 +823,16 @@ export default function FigmaAIApp() {
   return (
     <div className="h-screen flex flex-col bg-[#f8f9fa] text-foreground">
       {/* Top Navigation Bar */}
-      <div className="h-12 border-b border-[#e2e8f0] flex items-center justify-between px-4 bg-white">
+      <div className="h-20 border-b border-[#e2e8f0] flex items-center justify-between px-4 bg-white">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-black rounded-sm flex items-center justify-center">
-              <div className="w-3 h-3 bg-white rounded-sm"></div>
+          <div className="flex items-center gap-3">
+            <div className="h-16 w-32 overflow-hidden">
+              <img 
+                src="/pixie logo.png" 
+                alt="Pixie" 
+                className="h-[120%] w-[120%] object-cover object-center transform -translate-x-[11.5%] -translate-y-[11.5%]" 
+              />
             </div>
-            <Button variant="ghost" className="text-2xl font-semibold p-0 h-auto hover:bg-transparent text-green-900">
-              Pixie
-            </Button>
-
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -794,17 +852,47 @@ export default function FigmaAIApp() {
               <span>History</span>
             </div>
             <div className="space-y-2">
-              {promptHistory.length === 0 ? (
+              {imageHistory.length === 0 ? (
                 <div className="text-sm text-gray-500">No transformations yet</div>
               ) : (
-                promptHistory.map((item, index) => (
-                  <div key={item.timestamp} className="text-sm bg-gray-50 p-2 rounded">
-                    <div className="text-gray-900">{item.prompt}</div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      {new Date(item.timestamp).toLocaleTimeString()}
+                imageHistory.map((_, index, array) => {
+                  const historyIndex = index;
+                  const isOriginal = historyIndex === 0;
+                  const isCurrent = historyIndex === currentHistoryIndex;
+                  // promptHistory is added with newest first, so we need to reverse the index
+                  // index 1 (first transformation) maps to promptHistory[promptHistory.length - 1]
+                  // index 2 (second transformation) maps to promptHistory[promptHistory.length - 2], etc.
+                  const prompt = index > 0 ? promptHistory[promptHistory.length - index] : null;
+                  
+                  return (
+                    <div 
+                      key={index} 
+                      className={`text-sm p-2 rounded transition-colors cursor-pointer hover:bg-gray-100 ${
+                        isCurrent ? 'bg-yellow-50 border border-yellow-200 hover:bg-yellow-100' : 'bg-gray-50'
+                      }`}
+                      onClick={() => {
+                        setCurrentHistoryIndex(historyIndex);
+                        setImportedImage(imageHistory[historyIndex]);
+                      }}
+                    >
+                      <div className="text-gray-900">
+                        {isOriginal ? (
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">Original Image</span>
+                            
+                          </div>
+                        ) : prompt ? (
+                          prompt.prompt
+                        ) : (
+                          "Image Update"
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {prompt ? new Date(prompt.timestamp).toLocaleTimeString() : ""}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                }).reverse()
               )}
             </div>
           </div>
@@ -824,8 +912,8 @@ export default function FigmaAIApp() {
         <div className="flex-1 flex flex-col">
           {/* Canvas Header */}
           <div className="h-12 bg-white border-b border-[#e2e8f0] flex items-center justify-between px-4">
-            <div className="text-sm font-medium text-gray-700">Canvas</div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-6">
+              {/* Zoom Controls */}
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
@@ -847,13 +935,57 @@ export default function FigmaAIApp() {
                   <ZoomIn className="w-4 h-4" />
                 </Button>
               </div>
-            </div>
-            <div className="flex items-center gap-4">
+
+              <Separator orientation="vertical" className="h-6" />
+
+              {/* Undo/Redo Controls */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => {
+                    if (currentHistoryIndex > 0) {
+                      setCurrentHistoryIndex(prev => prev - 1)
+                      setImportedImage(imageHistory[currentHistoryIndex - 1])
+                    }
+                  }}
+                  disabled={currentHistoryIndex <= 0}
+                  title="Undo"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M9 14L4 9L9 4" />
+                    <path d="M4 9H15C18.866 9 22 12.134 22 16C22 19.866 18.866 23 15 23H8" />
+                  </svg>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => {
+                    if (currentHistoryIndex < imageHistory.length - 1) {
+                      setCurrentHistoryIndex(prev => prev + 1)
+                      setImportedImage(imageHistory[currentHistoryIndex + 1])
+                    }
+                  }}
+                  disabled={currentHistoryIndex >= imageHistory.length - 1}
+                  title="Redo"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M15 14L20 9L15 4" />
+                    <path d="M20 9H9C5.134 9 2 12.134 2 16C2 19.866 5.134 23 9 23H16" />
+                  </svg>
+                </Button>
+              </div>
+
+              <Separator orientation="vertical" className="h-6" />
+
+              {/* View Controls */}
               <div className="flex items-center gap-2">
                 <Button 
                   variant="ghost" 
                   size="sm" 
-                  className={`h-8 ${currentView === 'design' ? 'bg-blue-50 text-blue-600 hover:bg-blue-100 border-b-2 border-blue-500' : 'text-gray-600 hover:bg-gray-100'}`}
+                  className={`h-8 ${currentView === 'design' ? 'bg-green-50 text-green-600 hover:bg-green-100 border-b-2 border-green-500' : 'text-green-600 hover:bg-gray-100'}`}
                   onClick={() => setCurrentView('design')}
                 >
                   Design
@@ -862,12 +994,12 @@ export default function FigmaAIApp() {
               <Button 
                 variant="ghost" 
                 size="sm"
-                className={`h-8 px-3 ${currentView === 'code' ? 'bg-blue-50 text-blue-600 hover:bg-blue-100 border-b-2 border-blue-500' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                className={`h-8 px-3 ${currentView === 'code' ? 'bg-green-50 text-green-600 hover:bg-green-100 border-b-2 border-green-500' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
                 onClick={handleGenerateCode}
               >
                 Generate Code
               </Button>
-              <Button variant="ghost" className="text-sm px-3 h-8 bg-blue-50 text-blue-600 hover:bg-blue-100">Copy Prompt</Button>
+              <Button variant="ghost" className="text-sm px-3 h-8 bg-green-50 text-green-600 hover:bg-green-100">Copy Prompt</Button>
             </div>
           </div>
 
@@ -998,7 +1130,7 @@ export default function FigmaAIApp() {
 
           {/* Bottom Input Bar - Only show for design view */}
           {currentView === 'design' && (
-          <div className="h-16 bg-white border-t border-gray-200 flex items-center justify-center gap-6 px-8">
+          <div className="h-16 bg-white border-t border-gray-200 flex items-center justify-center gap-4 px-8">
             <div className="flex items-center gap-3">
               <Input
                 placeholder="Add the link to your website"
@@ -1009,7 +1141,7 @@ export default function FigmaAIApp() {
               <Button 
                 onClick={handleImportWebsite} 
                 disabled={isImporting}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4"
+                className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 hover:-translate-y-0.5 transition-transform"
               >
                 {isImporting ? (
                   <>
@@ -1029,7 +1161,7 @@ export default function FigmaAIApp() {
               <Button 
                 onClick={handleFileUpload} 
                 disabled={isUploading}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 relative group"
+                className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 relative group hover:-translate-y-0.5 transition-transform"
                 title="Upload image from your computer (JPEG, PNG, GIF, WebP up to 5MB)"
               >
                 {isUploading ? (
@@ -1086,8 +1218,14 @@ export default function FigmaAIApp() {
                       onClick={() => {
                         if (selectedAspectRatio?.id === ratio.id) {
                           // If the same ratio is clicked again, deselect it
-                          setSelectedAspectRatio(null)
                           setSelectionBox(null)
+                          setSelectedAspectRatio(null)
+                          // Also clear any resize/move states
+                          setIsResizing(false)
+                          setIsMovingBox(false)
+                          setResizeHandle(null)
+                          setMoveStart(null)
+                          setResizeStart(null)
                         } else {
                           // Select the new ratio
                           setSelectedAspectRatio(ratio)
