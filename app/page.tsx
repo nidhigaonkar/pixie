@@ -16,6 +16,7 @@ import {
   AlertCircle,
   ChevronDown,
   Plus,
+  Mic,
 } from "lucide-react"
 import { captureWebsiteScreenshot, validateUrl, normalizeUrl } from "@/lib/screenshot-service"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -64,7 +65,85 @@ export default function FigmaAIApp() {
   const [isProcessingSelection, setIsProcessingSelection] = useState(false)
   const [promptHistory, setPromptHistory] = useState<{timestamp: number; prompt: string}[]>([])
   const [showSuccess, setShowSuccess] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
   const canvasRef = useRef<HTMLDivElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+
+  const handleVoiceInput = async () => {
+    if (isRecording) {
+      setIsRecording(false)
+      mediaRecorderRef.current?.stop()
+      // Stop and cleanup the media stream
+      if (mediaRecorderRef.current?.stream) {
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+      }
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mediaRecorder = new MediaRecorder(stream)
+      mediaRecorderRef.current = mediaRecorder
+      chunksRef.current = []
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data)
+        }
+      }
+
+      mediaRecorder.onstop = async () => {
+        try {
+          const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' })
+          chunksRef.current = []
+
+          // Create form data with the audio file
+          const formData = new FormData()
+          formData.append('file', audioBlob, 'recording.webm')
+          formData.append('model_id', 'scribe_v1')
+          formData.append('language_code', 'eng')
+
+          const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+            method: 'POST',
+            headers: {
+              'xi-api-key': process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY as string,
+              // Don't set Content-Type header, let the browser set it with the boundary
+            },
+            body: formData
+          })
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: 'No error details available' }))
+            console.error('ElevenLabs API error details:', errorData)
+            let errorMessage = 'Failed to convert speech to text'
+            if (errorData.detail) {
+              errorMessage += `: ${JSON.stringify(errorData.detail)}`
+            }
+            throw new Error(errorMessage)
+          }
+
+          const data = await response.json()
+          if (!data || !data.text) {
+            console.error('Unexpected API response:', data)
+            throw new Error('Invalid response from speech-to-text service')
+          }
+          setSelectionPrompt(data.text)
+        } catch (error) {
+          console.error('Speech to text error:', error)
+          setError('Failed to convert speech to text. Please try again.')
+          setTimeout(() => setError(null), 5000)
+        }
+      }
+
+      mediaRecorder.start()
+      setIsRecording(true)
+    } catch (error) {
+      console.error('Microphone access error:', error)
+      setError('Failed to access microphone. Please check your permissions.')
+      setTimeout(() => setError(null), 5000)
+    }
+  }
 
   // Handle zoom with mouse wheel
   const handleWheel = useCallback((e: WheelEvent) => {
@@ -766,6 +845,7 @@ export default function FigmaAIApp() {
                 <Button variant="ghost" size="sm" className="h-8 bg-blue-50 text-blue-600 hover:bg-blue-100 border-b-2 border-blue-500">Design</Button>
               </div>
               <Button variant="ghost" className="text-sm px-3 h-8 bg-blue-50 text-blue-600 hover:bg-blue-100">Generate Code</Button>
+              <Button variant="ghost" className="text-sm px-3 h-8 bg-blue-50 text-blue-600 hover:bg-blue-100">Copy Prompt</Button>
             </div>
           </div>
 
@@ -993,18 +1073,29 @@ export default function FigmaAIApp() {
                 {selectedAspectRatio && (
                   <div className="border-t border-gray-200 pt-4">
                     <div className="text-sm font-medium text-gray-700 mb-2">Describe the change</div>
-                    <Input
-                      placeholder="e.g. change the text from hello to hey there!"
-                      value={selectionPrompt}
-                      onChange={(e) => setSelectionPrompt(e.target.value)}
-                      className="w-full mb-3"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && selectionPrompt.trim()) {
-                          e.preventDefault()
-                          handleSelectionSubmit()
-                        }
-                      }}
-                    />
+                    <div className="flex gap-2 mb-3">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className={`shrink-0 transition-colors ${isRecording ? 'bg-red-100 border-red-500 text-red-500 hover:bg-red-200' : ''}`}
+                        title={isRecording ? 'Stop recording' : 'Use voice input'}
+                        onClick={handleVoiceInput}
+                      >
+                        <Mic className={`w-4 h-4 ${isRecording ? 'animate-pulse' : ''}`} />
+                      </Button>
+                      <Input
+                        placeholder="e.g. change the text from hello to hey there!"
+                        value={selectionPrompt}
+                        onChange={(e) => setSelectionPrompt(e.target.value)}
+                        className="w-full"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && selectionPrompt.trim()) {
+                            e.preventDefault()
+                            handleSelectionSubmit()
+                          }
+                        }}
+                      />
+                    </div>
                     <Button
                       onClick={handleSelectionSubmit}
                       disabled={!selectionPrompt.trim() || isProcessingSelection || !selectionBox}
