@@ -20,14 +20,31 @@ export async function POST(request: Request) {
 
     // Launch browser with serverless configuration
     const isProduction = process.env.NODE_ENV === 'production';
+    const isVercel = process.env.VERCEL === '1';
+    
+    let executablePath;
+    if (isProduction && isVercel) {
+      try {
+        executablePath = await chromium.executablePath({
+          fontConfigPath: '/var/task/node_modules/@sparticuz/chromium/bin/etc/fonts',
+        });
+      } catch (error) {
+        console.log('Failed to get chromium executable path:', error);
+        // Fallback to letting puppeteer find chromium
+        executablePath = await chromium.executablePath();
+      }
+    }
     
     browser = await puppeteer.launch({
       args: isProduction 
-        ? chromium.args.concat([
+        ? [
+            ...chromium.args,
             '--hide-scrollbars',
             '--disable-web-security',
-            '--window-size=1280,800'
-          ])
+            '--window-size=1280,800',
+            '--single-process',
+            '--no-zygote',
+          ]
         : [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -37,8 +54,9 @@ export async function POST(request: Request) {
             '--window-size=1280,800'
           ],
       defaultViewport: isProduction ? chromium.defaultViewport : { width: 1280, height: 800 },
-      executablePath: isProduction ? await chromium.executablePath() : undefined,
+      executablePath: executablePath,
       headless: isProduction ? chromium.headless : 'new',
+      ignoreDefaultArgs: isProduction ? ['--disable-extensions'] : false,
     });
 
     const page = await browser.newPage();

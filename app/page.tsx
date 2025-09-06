@@ -737,7 +737,7 @@ export default function FigmaAIApp() {
       const response = await fetch('https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/apply', {
         method: 'POST',
         headers: {
-          'X-API-Key': 'AIzaSyCFUYBEcu7HQ2tPWVWJjeSBOjQ24qS56kE'
+          'X-API-Key': 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
         },
         body: formData
       })
@@ -841,7 +841,7 @@ export default function FigmaAIApp() {
       const response = await fetch('https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/prompt', {
         method: 'POST',
         headers: {
-          'X-API-Key': 'AIzaSyCFUYBEcu7HQ2tPWVWJjeSBOjQ24qS56kE'
+          'X-API-Key': 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
         },
         body: formData
       })
