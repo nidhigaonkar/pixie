@@ -57,7 +57,30 @@ export default function FigmaAIApp() {
   const [showElementBounds, setShowElementBounds] = useState(true)
   const [isSelecting, setIsSelecting] = useState(false)
   const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true)
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true)
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  // Handle zoom with mouse wheel
+  const handleWheel = useCallback((e: WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      const delta = e.deltaY * -0.01
+      setZoom(prev => Math.min(200, Math.max(25, prev + delta * 25)))
+    }
+  }, [])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (canvas) {
+      canvas.addEventListener('wheel', handleWheel, { passive: false })
+    }
+    return () => {
+      if (canvas) {
+        canvas.removeEventListener('wheel', handleWheel)
+      }
+    }
+  }, [handleWheel])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -94,6 +117,24 @@ export default function FigmaAIApp() {
           }))
           setElements((prev) => [...prev.map((el) => ({ ...el, selected: false })), ...duplicates])
         }
+      }
+
+      // Ctrl/Cmd + Plus to zoom in
+      if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=")) {
+        e.preventDefault()
+        setZoom(prev => Math.min(200, prev + 25))
+      }
+
+      // Ctrl/Cmd + Minus to zoom out
+      if ((e.ctrlKey || e.metaKey) && e.key === "-") {
+        e.preventDefault()
+        setZoom(prev => Math.max(25, prev - 25))
+      }
+
+      // Ctrl/Cmd + 0 to reset zoom
+      if ((e.ctrlKey || e.metaKey) && e.key === "0") {
+        e.preventDefault()
+        setZoom(100)
       }
     }
 
@@ -200,7 +241,7 @@ export default function FigmaAIApp() {
             <div className="w-6 h-6 bg-black rounded-sm flex items-center justify-center">
               <div className="w-3 h-3 bg-white rounded-sm"></div>
             </div>
-            <Button variant="ghost" className="text-lg font-medium p-0 h-auto hover:bg-transparent">
+            <Button variant="ghost" className="text-2xl font-semibold p-0 h-auto hover:bg-transparent text-green-800">
               Pixie
             </Button>
           </div>
@@ -214,16 +255,25 @@ export default function FigmaAIApp() {
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar */}
-        <div className="w-64 bg-white border-r border-[#e2e8f0] flex flex-col">
+        <div className={`${leftSidebarOpen ? 'w-64' : 'w-8'} bg-white border-r border-[#e2e8f0] flex flex-col relative transition-all duration-300`}>
           {/* History Panel */}
-          <div className="p-4">
+          <div className={`p-4 min-w-[256px] ${leftSidebarOpen ? '' : 'invisible'}`}>
             <div className="flex items-center gap-2 mb-3 text-sm font-medium">
               <History className="w-4 h-4 text-gray-600" />
               <span>History</span>
             </div>
             <div className="text-sm text-gray-500">No transformations yet</div>
           </div>
-
+          
+          {/* Toggle Button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute right-0 top-1/2 transform -translate-y-1/2 w-8 h-8 p-0 hover:bg-gray-100 rounded-full z-10 flex items-center justify-center"
+            onClick={() => setLeftSidebarOpen(prev => !prev)}
+          >
+            <ChevronDown className={`w-4 h-4 transform transition-transform ${leftSidebarOpen ? 'rotate-90' : '-rotate-90'} text-gray-600`} />
+          </Button>
         </div>
 
         {/* Main Canvas Area */}
@@ -232,7 +282,27 @@ export default function FigmaAIApp() {
           <div className="h-12 bg-white border-b border-[#e2e8f0] flex items-center justify-between px-4">
             <div className="text-sm font-medium text-gray-700">Canvas</div>
             <div className="flex items-center gap-4">
-              <div className="text-sm text-gray-500">100 %</div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setZoom(prev => Math.max(25, prev - 25))}
+                  disabled={zoom <= 25}
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </Button>
+                <div className="text-sm text-gray-500 min-w-[60px] text-center">{zoom}%</div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setZoom(prev => Math.min(200, prev + 25))}
+                  disabled={zoom >= 200}
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
             <div className="flex items-center gap-4">
               <Button variant="ghost" className="text-sm px-3 h-8 bg-blue-50 text-blue-600 hover:bg-blue-100">Export</Button>
@@ -339,8 +409,8 @@ export default function FigmaAIApp() {
               <Input
                 placeholder={
                   selectedElements.length > 0
-                    ? `Select an element first...`
-                    : "Select an element first"
+                    ? `Upload from computer.`
+                    : "Upload from computer"
                 }
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
@@ -360,7 +430,7 @@ export default function FigmaAIApp() {
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4 mr-2" />
-                    Transform with AI
+                    Import Image
                   </>
                 )}
               </Button>
@@ -370,24 +440,36 @@ export default function FigmaAIApp() {
         </div>
 
         {/* Right Properties Panel */}
-        <div className="w-80 bg-white border-l border-[#e2e8f0] flex flex-col">
-          <div className="p-4 border-b border-[#e2e8f0] flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-700">Properties</h3>
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-100">
-              <Plus className="w-4 h-4 text-gray-600" />
-            </Button>
-          </div>
+        <div className={`${rightSidebarOpen ? 'w-80' : 'w-8'} bg-white border-l border-[#e2e8f0] flex flex-col relative transition-all duration-300`}>
+          {/* Toggle Button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute left-0 top-1/2 transform -translate-y-1/2 w-8 h-8 p-0 hover:bg-gray-100 rounded-full z-10 flex items-center justify-center"
+            onClick={() => setRightSidebarOpen(prev => !prev)}
+          >
+            <ChevronDown className={`w-4 h-4 transform transition-transform ${rightSidebarOpen ? '-rotate-90' : 'rotate-90'} text-gray-600`} />
+          </Button>
 
-          <div className="flex-1 p-4">
-            <div className="text-center text-gray-500">
-              <p className="mb-4">Select an element to view properties</p>
-              <div className="text-sm space-y-2 text-left">
-                <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Click</kbd> to select</div>
-                <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+Click</kbd> multi-select</div>
-                <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Esc</kbd> deselect all</div>
-                <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Del</kbd> remove selected</div>
-                <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+A</kbd> select all</div>
-                <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+D</kbd> duplicate</div>
+          <div className={`min-w-[320px] ${rightSidebarOpen ? '' : 'invisible'}`}>
+            <div className="p-4 border-b border-[#e2e8f0] flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-700">Properties</h3>
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-100">
+                <Plus className="w-4 h-4 text-gray-600" />
+              </Button>
+            </div>
+
+            <div className="flex-1 p-4">
+              <div className="text-center text-gray-500">
+                <p className="mb-4">Select an element to view properties</p>
+                <div className="text-sm space-y-2 text-left">
+                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Click</kbd> to select</div>
+                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+Click</kbd> multi-select</div>
+                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Esc</kbd> deselect all</div>
+                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Del</kbd> remove selected</div>
+                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+A</kbd> select all</div>
+                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+D</kbd> duplicate</div>
+                </div>
               </div>
             </div>
           </div>
