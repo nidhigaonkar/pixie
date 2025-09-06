@@ -67,13 +67,15 @@ export default function FigmaAIApp() {
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | null>(null)
   const [selectionPrompt, setSelectionPrompt] = useState("")
   const [isProcessingSelection, setIsProcessingSelection] = useState(false)
-  const [promptHistory, setPromptHistory] = useState<{timestamp: number; prompt: string}[]>([])
+  const [promptHistory, setPromptHistory] = useState<{timestamp: number; prompt: string; requestId: string}[]>([])
   const [showSuccess, setShowSuccess] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [currentView, setCurrentView] = useState<'design' | 'code'>('design')
   const [imageHistory, setImageHistory] = useState<string[]>([])
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1)
-  const [isCopyingPrompt, setIsCopyingPrompt] = useState(false)
+  const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
+  const [showPromptPopup, setShowPromptPopup] = useState(false)
+  const [promptPopupData, setPromptPopupData] = useState<{instructions: string; assets: any[]} | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -726,12 +728,21 @@ export default function FigmaAIApp() {
       })
 
       // Prepare form data
+      const requestId = `pixie_${Date.now()}`
       const formData = new FormData()
       formData.append('prompt', selectionPrompt.trim())
       formData.append('image', blob, 'selection.png')
       formData.append('aspect_ratio', `${selectedAspectRatio.ratio}:1`)
-      formData.append('request_id', `pixie_${Date.now()}`)
+      formData.append('request_id', requestId)
       formData.append('numberOfImages', '1')
+
+      console.log('🔄 Making apply transformation API call:', {
+        endpoint: 'https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/apply',
+        requestId: requestId,
+        prompt: selectionPrompt.trim(),
+        aspectRatio: `${selectedAspectRatio.ratio}:1`,
+        imageSize: blob.size
+      })
 
       // Make API call
       const response = await fetch('https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/apply', {
@@ -742,7 +753,14 @@ export default function FigmaAIApp() {
         body: formData
       })
 
+      console.log('📥 Apply API Response status:', response.status, response.statusText)
+
       if (!response.ok) {
+        console.error('❌ Apply API request failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          requestId: requestId
+        })
         throw new Error(`API request failed: ${response.status} ${response.statusText}`)
       }
 
@@ -793,7 +811,8 @@ export default function FigmaAIApp() {
       // Add to history
       setPromptHistory(prev => [{
         timestamp: Date.now(),
-        prompt: selectionPrompt.trim()
+        prompt: selectionPrompt.trim(),
+        requestId: requestId
       }, ...prev])
 
       // Show success message
@@ -821,22 +840,45 @@ export default function FigmaAIApp() {
     }
   }
 
-  const handleCopyPrompt = async () => {
+  const handleViewPrompt = async () => {
     if (!importedImage || currentHistoryIndex < 0) {
-      setError('No image available to copy prompt for')
+      setError('No image available to view prompt for')
       setTimeout(() => setError(null), 5000)
       return
     }
 
-    setIsCopyingPrompt(true)
+    setIsLoadingPrompt(true)
     setError(null)
 
-    try {
-      // Make API call to get prompt data
-      const formData = new FormData()
-      formData.append('request_id', `pixie_copy_${Date.now()}`)
-      formData.append('image_id', String(currentHistoryIndex + 1))
+    // Get the prompt and request ID for the current transformation
+    const currentTransformation = currentHistoryIndex > 0 ? 
+      promptHistory[promptHistory.length - currentHistoryIndex] : null
+    const currentPrompt = currentTransformation?.prompt || ''
+    const originalRequestId = currentTransformation?.requestId || ''
+    
+    // Use the original request ID from when the transformation was applied
+    const requestId = originalRequestId || `pixie_copy_${Date.now()}`
 
+    try {
+      // Convert base64 image to blob
+      const base64Response = await fetch(importedImage)
+      const blob = await base64Response.blob()
+      const formData = new FormData()
+      formData.append('request_id', requestId)
+      formData.append('image', blob, 'image.png')
+      if (currentPrompt) {
+        formData.append('prompt', currentPrompt)
+      }
+      
+      console.log('🔄 Making copy prompt API call:', {
+        endpoint: 'https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/prompt',
+        requestId: requestId,
+        originalRequestId: originalRequestId,
+        isOriginalRequestId: !!originalRequestId,
+        prompt: currentPrompt,
+        imageSize: blob.size,
+        currentHistoryIndex: currentHistoryIndex
+      })
       
       const response = await fetch('https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/prompt', {
         method: 'POST',
@@ -846,31 +888,33 @@ export default function FigmaAIApp() {
         body: formData
       })
 
+      console.log('📥 API Response status:', response.status, response.statusText)
+      
       if (!response.ok) {
+        console.error('❌ API request failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          requestId: requestId
+        })
         throw new Error(`API request failed: ${response.status} ${response.statusText}`)
       }
 
       const promptData = await response.json()
+      console.log('✅ API Response data:', promptData)
       
-      // Format the data for clipboard
-      let clipboardContent = ''
-      
-      if (promptData.instructions) {
-        clipboardContent += `Instructions:\n${promptData.instructions}\n\n`
-      }
-      
-      if (promptData.assets && promptData.assets.length > 0) {
-        clipboardContent += 'Assets:\n'
-        promptData.assets.forEach((asset: any, index: number) => {
-          clipboardContent += `${index + 1}. ${asset.filename || `asset_${index + 1}`}\n`
-          if (asset.data) {
-            clipboardContent += `   Data: ${asset.data.substring(0, 100)}...\n`
-          }
-        })
+      // Create the complete prompt structure to copy to clipboard
+      const promptStructure = {
+        instructions: promptData.instructions || '',
+        model: promptData.model || 'gemini-2.5-flash-image-preview',
+        assets: promptData.assets || []
       }
 
-      // Copy to clipboard
-      await navigator.clipboard.writeText(clipboardContent)
+      // Show popup with API response data
+      setPromptPopupData({
+        instructions: promptData.instructions || '',
+        assets: promptData.assets || []
+      })
+      setShowPromptPopup(true)
       
       // Show success message
       setShowSuccess(true)
@@ -879,15 +923,22 @@ export default function FigmaAIApp() {
       }, 3000)
 
     } catch (err) {
-      console.error("Copy prompt error:", err)
-      setError(err instanceof Error ? err.message : "Failed to copy prompt")
+      console.error('❌ View prompt error:', {
+        error: err,
+        requestId: requestId,
+        originalRequestId: originalRequestId,
+        currentHistoryIndex: currentHistoryIndex,
+        hasImage: !!importedImage,
+        promptHistoryLength: promptHistory.length
+      })
+      setError(err instanceof Error ? err.message : "Failed to load prompt")
       
       // Clear error after 5 seconds
       setTimeout(() => {
         setError(null)
       }, 5000)
     } finally {
-      setIsCopyingPrompt(false)
+      setIsLoadingPrompt(false)
     }
   }
 
@@ -1074,18 +1125,18 @@ export default function FigmaAIApp() {
               <Button 
                 variant="ghost" 
                 className="text-sm px-3 h-8 bg-green-50 text-green-600 hover:bg-green-100"
-                onClick={handleCopyPrompt}
-                disabled={isCopyingPrompt || !importedImage || currentHistoryIndex < 0}
+                onClick={handleViewPrompt}
+                disabled={isLoadingPrompt || !importedImage || currentHistoryIndex < 0}
               >
-                {isCopyingPrompt ? (
+                {isLoadingPrompt ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Copying...
+                    Loading...
                   </>
                 ) : (
                   <>
-                    <Copy className="w-4 h-4 mr-2" />
-                    Copy Prompt
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    View Prompt
                   </>
                 )}
               </Button>
@@ -1406,6 +1457,167 @@ export default function FigmaAIApp() {
           </div>
         </div>
       </div>
+
+      {/* Prompt Popup Modal */}
+      {showPromptPopup && promptPopupData && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">Prompt Instructions & Assets</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowPromptPopup(false)}
+                className="h-8 w-8 p-0 hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+              {/* Instructions Section */}
+              <div className="mb-6">
+                <h3 className="text-lg font-medium text-gray-900 mb-3">Instructions</h3>
+                <div className="bg-gray-50 rounded-lg p-4 border">
+                  <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
+                    {promptPopupData.instructions || 'No instructions available'}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Assets Section */}
+              {promptPopupData.assets && promptPopupData.assets.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-3">Assets ({promptPopupData.assets.length})</h3>
+                  <div className="grid gap-4">
+                    {promptPopupData.assets.map((asset, index) => (
+                      <div key={index} className="border rounded-lg p-4 bg-gray-50">
+                        {/* Asset metadata */}
+                        <div className="mb-3">
+                          <div className="text-sm text-gray-600 mb-1">
+                            <strong>Type:</strong> {asset.type || 'Unknown'}
+                          </div>
+                          {asset.name && (
+                            <div className="text-sm text-gray-600 mb-1">
+                              <strong>Name:</strong> {asset.name}
+                            </div>
+                          )}
+                          {asset.size && (
+                            <div className="text-sm text-gray-600 mb-1">
+                              <strong>Size:</strong> {asset.size} bytes
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Asset preview */}
+                        {asset.data && (
+                          <div className="mt-3">
+                            <div className="text-sm font-medium text-gray-700 mb-2">Preview:</div>
+                            {(() => {
+                              // Try to detect if this is image data and render it
+                              try {
+                                // Check if asset.type exists and is an image type
+                                const isImageType = asset.type && (
+                                  asset.type.startsWith('image/') || 
+                                  asset.type.includes('png') || 
+                                  asset.type.includes('jpg') || 
+                                  asset.type.includes('jpeg') || 
+                                  asset.type.includes('gif') || 
+                                  asset.type.includes('webp')
+                                );
+
+                                // Check if the data looks like base64 or if we should treat it as bytes
+                                let imageSrc = '';
+                                
+                                if (typeof asset.data === 'string') {
+                                  // If it's a string, assume it's base64
+                                  const mimeType = asset.type || 'image/png';
+                                  imageSrc = `data:${mimeType};base64,${asset.data}`;
+                                } else if (asset.data instanceof ArrayBuffer || Array.isArray(asset.data)) {
+                                  // If it's bytes, convert to base64
+                                  const bytes = new Uint8Array(asset.data);
+                                  const base64 = btoa(String.fromCharCode(...bytes));
+                                  const mimeType = asset.type || 'image/png';
+                                  imageSrc = `data:${mimeType};base64,${base64}`;
+                                } else {
+                                  // Fallback: try to use it as is
+                                  const mimeType = asset.type || 'image/png';
+                                  imageSrc = `data:${mimeType};base64,${asset.data}`;
+                                }
+
+                                // Always try to render as image first (regardless of type detection)
+                                return (
+                                  <div>
+                                    <img 
+                                      src={imageSrc}
+                                      alt={asset.name || `Asset ${index + 1}`}
+                                      className="max-w-full h-auto rounded border shadow-sm"
+                                      style={{ maxHeight: '300px' }}
+                                      onError={(e) => {
+                                        // If image fails to load, show the raw data instead
+                                        const target = e.target as HTMLImageElement;
+                                        const parent = target.parentElement;
+                                        if (parent) {
+                                          parent.innerHTML = `
+                                            <div class="bg-white border rounded p-3">
+                                              <div class="text-xs text-gray-500 mb-2">Raw Data (first 200 characters):</div>
+                                              <code class="text-xs text-gray-600 break-all">
+                                                ${String(asset.data).substring(0, 200)}
+                                                ${String(asset.data).length > 200 ? '...' : ''}
+                                              </code>
+                                            </div>
+                                          `;
+                                        }
+                                      }}
+                                    />
+                                  </div>
+                                );
+                              } catch (error) {
+                                // Fallback to showing raw data
+                                return (
+                                  <div className="bg-white border rounded p-3">
+                                    <div className="text-xs text-gray-500 mb-2">Raw Data (first 200 characters):</div>
+                                    <code className="text-xs text-gray-600 break-all">
+                                      {String(asset.data).substring(0, 200)}
+                                      {String(asset.data).length > 200 && '...'}
+                                    </code>
+                                  </div>
+                                );
+                              }
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* No assets message */}
+              {(!promptPopupData.assets || promptPopupData.assets.length === 0) && (
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-3">Assets</h3>
+                  <div className="text-gray-500 text-center py-8 border-2 border-dashed border-gray-200 rounded-lg">
+                    No assets available
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end p-6 border-t border-gray-200 bg-gray-50">
+              <Button
+                onClick={() => setShowPromptPopup(false)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
