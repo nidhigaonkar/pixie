@@ -200,16 +200,13 @@ export default function FigmaAIApp() {
             <div className="w-6 h-6 bg-black rounded-sm flex items-center justify-center">
               <div className="w-3 h-3 bg-white rounded-sm"></div>
             </div>
-            <Button variant="ghost" className="text-sm font-medium p-0 h-auto hover:bg-transparent">
+            <Button variant="ghost" className="text-lg font-medium p-0 h-auto hover:bg-transparent">
               Pixie
             </Button>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            <div className="w-6 h-6 bg-orange-500 rounded-full"></div>
-            <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-medium">?</div>
-          </div>
+          
           <Button variant="ghost" size="sm" className="h-8 px-3 bg-gray-100 hover:bg-gray-200 rounded-md">Share</Button>
         </div>
       </div>
@@ -310,13 +307,13 @@ export default function FigmaAIApp() {
           </div>
 
           {/* Bottom Input Bar */}
-          <div className="h-16 bg-gray-700 border-t border-gray-600 flex items-center justify-center gap-6 px-8">
+          <div className="h-16 bg-white border-t border-gray-200 flex items-center justify-center gap-6 px-8">
             <div className="flex items-center gap-3">
               <Input
                 placeholder="Enter website URL (e.g., https://example.com)"
                 value={websiteUrl}
                 onChange={(e) => setWebsiteUrl(e.target.value)}
-                className="w-64 bg-gray-600 border-gray-500 text-white placeholder-gray-400"
+                className="w-64 bg-white border-gray-200 text-gray-900 placeholder-gray-500"
                 onKeyDown={(e) => e.key === "Enter" && handleImportWebsite()}
               />
               <Button 
@@ -348,7 +345,7 @@ export default function FigmaAIApp() {
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 disabled={selectedElements.length === 0}
-                className="w-64 bg-gray-600 border-gray-500 text-white placeholder-gray-400"
+                className="w-64 bg-white border-gray-200 text-gray-900 placeholder-gray-500"
               />
               <Button
                 onClick={handleAITransform}
