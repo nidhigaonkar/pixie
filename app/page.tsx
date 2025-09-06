@@ -9,23 +9,12 @@ import { Separator } from "@/components/ui/separator"
 import {
   ZoomIn,
   ZoomOut,
-  Layers,
   History,
-  Download,
   Sparkles,
   Upload,
   Loader2,
   AlertCircle,
-  Eye,
-  EyeOff,
   ChevronDown,
-  Camera,
-  Lightbulb,
-  Sun,
-  Box,
-  User,
-  Image as ImageIcon,
-  FolderOpen,
   Plus,
 } from "lucide-react"
 import { captureWebsiteScreenshot, validateUrl, normalizeUrl } from "@/lib/screenshot-service"
@@ -45,17 +34,6 @@ const ASPECT_RATIOS: AspectRatio[] = [
   { id: 'widescreen', name: '16:9 (Widescreen)', ratio: 16/9 }
 ]
 
-interface UIElement {
-  id: string
-  position: { x: number; y: number; width: number; height: number }
-  type: "button" | "text" | "image" | "container" | "form"
-  selector?: string
-  text?: string
-  originalImage?: string
-  currentImage?: string
-  selected: boolean
-  visible: boolean
-}
 
 export default function FigmaAIApp() {
   const [websiteUrl, setWebsiteUrl] = useState("")
@@ -64,12 +42,9 @@ export default function FigmaAIApp() {
   const [isImporting, setIsImporting] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [importedImage, setImportedImage] = useState<string | null>(null)
-  const [elements, setElements] = useState<UIElement[]>([])
   const [zoom, setZoom] = useState(100)
   const [error, setError] = useState<string | null>(null)
   const [importMetadata, setImportMetadata] = useState<any>(null)
-  const [hoveredElement, setHoveredElement] = useState<string | null>(null)
-  const [showElementBounds, setShowElementBounds] = useState(true)
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true)
   const [isDragging, setIsDragging] = useState(false)
@@ -242,40 +217,6 @@ export default function FigmaAIApp() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Escape to deselect all
-      if (e.key === "Escape") {
-        setElements((prev) => prev.map((el) => ({ ...el, selected: false })))
-      }
-
-      // Delete to remove selected elements
-      if (e.key === "Delete" || e.key === "Backspace") {
-        setElements((prev) => prev.filter((el) => !el.selected))
-      }
-
-      // Ctrl/Cmd + A to select all
-      if ((e.ctrlKey || e.metaKey) && e.key === "a") {
-        e.preventDefault()
-        setElements((prev) => prev.map((el) => ({ ...el, selected: true })))
-      }
-
-      // Ctrl/Cmd + D to duplicate selected elements
-      if ((e.ctrlKey || e.metaKey) && e.key === "d") {
-        e.preventDefault()
-        const selectedElements = elements.filter((el) => el.selected)
-        if (selectedElements.length > 0) {
-          const duplicates = selectedElements.map((el) => ({
-            ...el,
-            id: `${el.id}-copy-${Date.now()}`,
-            position: {
-              ...el.position,
-              x: el.position.x + 20,
-              y: el.position.y + 20,
-            },
-            selected: true,
-          }))
-          setElements((prev) => [...prev.map((el) => ({ ...el, selected: false })), ...duplicates])
-        }
-      }
 
       // Ctrl/Cmd + Plus to zoom in
       if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=")) {
@@ -304,7 +245,7 @@ export default function FigmaAIApp() {
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [elements, selectionBox, selectedAspectRatio, selectionPrompt])
+  }, [selectionBox, selectedAspectRatio, selectionPrompt])
 
   const handleImportWebsite = async () => {
     if (!websiteUrl) return
@@ -326,18 +267,6 @@ export default function FigmaAIApp() {
         setImportedImage(result.screenshot)
         setImportMetadata(result.metadata)
         // Image position is fixed at 32, 32
-
-        const uiElements: UIElement[] = result.elements.map((element) => ({
-          id: element.id,
-          position: element.position,
-          type: element.type,
-          selector: element.selector,
-          text: element.text,
-          selected: false,
-          visible: true,
-        }))
-
-        setElements(uiElements)
         setError(null)
       } else {
         setError("Failed to capture website screenshot")
@@ -350,38 +279,6 @@ export default function FigmaAIApp() {
     }
   }
 
-  const handleElementClick = useCallback((elementId: string, event: React.MouseEvent) => {
-    // Prevent element selection during dragging
-    if (isDragging) {
-      event.preventDefault()
-      return
-    }
-
-    const isMultiSelect = event.ctrlKey || event.metaKey
-
-    setElements((prev) =>
-      prev.map((el) => {
-        if (el.id === elementId) {
-          return { ...el, selected: isMultiSelect ? !el.selected : true }
-        } else if (!isMultiSelect) {
-          return { ...el, selected: false }
-        }
-        return el
-      }),
-    )
-  }, [isDragging])
-
-  const handleElementMouseEnter = useCallback((elementId: string) => {
-    setHoveredElement(elementId)
-  }, [])
-
-  const handleElementMouseLeave = useCallback(() => {
-    setHoveredElement(null)
-  }, [])
-
-  const toggleElementVisibility = useCallback((elementId: string) => {
-    setElements((prev) => prev.map((el) => (el.id === elementId ? { ...el, visible: !el.visible } : el)))
-  }, [])
 
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const [isControlPressed, setIsControlPressed] = useState(false)
@@ -444,9 +341,6 @@ export default function FigmaAIApp() {
           // Change cursor style
           canvas.style.cursor = 'grabbing'
         }
-        
-        // Deselect elements
-        setElements((prev) => prev.map((el) => ({ ...el, selected: false })))
       } else if (event.button === 2 && (event.ctrlKey || event.metaKey)) {
         // Control + Right click - start selection
         event.preventDefault()
@@ -609,7 +503,6 @@ export default function FigmaAIApp() {
       })
       
       setImportedImage(imageDataUrl)
-      setElements([]) // Reset elements since this is a new image
       // Image position is fixed at 32, 32
       setError(null)
       
@@ -781,8 +674,6 @@ export default function FigmaAIApp() {
     }
   }
 
-  const selectedElements = elements.filter((el) => el.selected)
-  const selectedElement = selectedElements[0] // For single selection display
 
   return (
     <div className="h-screen flex flex-col bg-[#f8f9fa] text-foreground">
@@ -977,43 +868,6 @@ export default function FigmaAIApp() {
                     />
                   </div>
                 )}
-                {/* Element Overlays */}
-                {showElementBounds &&
-                  elements.map(
-                    (element) =>
-                      element.visible && (
-                        <div
-                          key={element.id}
-                          className={`absolute cursor-pointer transition-all ${
-                            element.selected
-                              ? "selection-border"
-                              : hoveredElement === element.id
-                                ? "element-hover border-2 border-accent/70"
-                                : "hover:element-hover"
-                          }`}
-                          style={{
-                            left: element.position.x,
-                            top: element.position.y,
-                            width: element.position.width,
-                            height: element.position.height,
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleElementClick(element.id, e)
-                          }}
-                          onMouseEnter={() => handleElementMouseEnter(element.id)}
-                          onMouseLeave={handleElementMouseLeave}
-                          title={`${element.type}: ${element.text || element.id}`}
-                        >
-                          {(element.selected || hoveredElement === element.id) && (
-                            <div className="absolute -top-6 left-0 bg-accent text-accent-foreground text-xs px-2 py-1 rounded whitespace-nowrap z-10">
-                              {element.type}{" "}
-                              {element.text && `• ${element.text.slice(0, 20)}${element.text.length > 20 ? "..." : ""}`}
-                            </div>
-                          )}
-                        </div>
-                      ),
-                  )}
               </div>
             ) : (
               <div className="flex items-center justify-center h-full">
@@ -1021,12 +875,6 @@ export default function FigmaAIApp() {
                   <Upload className="w-12 h-12 mx-auto mb-4" />
                   <p className="text-lg mb-2 font-medium">Import a website to get started</p>
                   <p className="text-sm mb-6">Enter a URL below to screenshot and analyze</p>
-                  <div className="text-sm space-y-1">
-                    <div>• Click elements to select them</div>
-                    <div>• Hold Ctrl/Cmd for multi-select</div>
-                    <div>• Press Esc to deselect all</div>
-                    <div>• Press Delete to remove selected</div>
-                  </div>
                 </div>
               </div>
             )}
@@ -1039,9 +887,7 @@ export default function FigmaAIApp() {
                 placeholder="Add the link to your website"
                 value={websiteUrl}
                 onChange={(e) => setWebsiteUrl(e.target.value)}
-                onClick={handleImportWebsite}
-                readOnly
-                className="w-64 bg-white border-gray-200 text-gray-900 placeholder-gray-500 cursor-pointer"
+                className="w-64 bg-white border-gray-200 text-gray-900 placeholder-gray-500"
               />
               <Button 
                 onClick={handleImportWebsite} 
@@ -1192,16 +1038,6 @@ export default function FigmaAIApp() {
                   </div>
                 )}
                 
-                <div className="border-t border-gray-200 pt-4">
-                  <div className="text-sm space-y-2">
-                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Click</kbd> to select</div>
-                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+Click</kbd> multi-select</div>
-                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Esc</kbd> deselect all</div>
-                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Del</kbd> remove selected</div>
-                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+A</kbd> select all</div>
-                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+D</kbd> duplicate</div>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
