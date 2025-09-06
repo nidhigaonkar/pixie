@@ -45,6 +45,7 @@ interface UIElement {
 
 export default function FigmaAIApp() {
   const [websiteUrl, setWebsiteUrl] = useState("")
+  const [isUploading, setIsUploading] = useState(false)
   const [aiPrompt, setAiPrompt] = useState("")
   const [isImporting, setIsImporting] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -59,6 +60,12 @@ export default function FigmaAIApp() {
   const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true)
+  const [isDragging, setIsDragging] = useState(false)
+  const [startDragPosition, setStartDragPosition] = useState<{ x: number; y: number } | null>(null)
+  const [scrollPosition, setScrollPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [isDraggingImage, setIsDraggingImage] = useState(false)
+  const [imagePosition, setImagePosition] = useState<{ x: number; y: number }>({ x: 32, y: 32 })
+  const [imageDragStart, setImageDragStart] = useState<{ x: number; y: number } | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
 
   // Handle zoom with mouse wheel
@@ -81,6 +88,58 @@ export default function FigmaAIApp() {
       }
     }
   }, [handleWheel])
+
+  // Global mouse events for smooth dragging
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (isDragging && startDragPosition && canvasRef.current) {
+        e.preventDefault()
+        
+        const deltaX = e.clientX - startDragPosition.x
+        const deltaY = e.clientY - startDragPosition.y
+        
+        canvasRef.current.scrollLeft = scrollPosition.x - deltaX
+        canvasRef.current.scrollTop = scrollPosition.y - deltaY
+      } else if (isDraggingImage && imageDragStart) {
+        e.preventDefault()
+        
+        const deltaX = e.clientX - imageDragStart.x
+        const deltaY = e.clientY - imageDragStart.y
+        
+        setImagePosition(prev => ({
+          x: prev.x + deltaX,
+          y: prev.y + deltaY
+        }))
+        
+        setImageDragStart({ x: e.clientX, y: e.clientY })
+      }
+    }
+
+    const handleGlobalMouseUp = () => {
+      if (isDragging) {
+        setIsDragging(false)
+        setStartDragPosition(null)
+        
+        const canvas = canvasRef.current
+        if (canvas) {
+          canvas.style.cursor = 'grab'
+        }
+      } else if (isDraggingImage) {
+        setIsDraggingImage(false)
+        setImageDragStart(null)
+      }
+    }
+
+    if (isDragging || isDraggingImage) {
+      document.addEventListener('mousemove', handleGlobalMouseMove)
+      document.addEventListener('mouseup', handleGlobalMouseUp)
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove)
+      document.removeEventListener('mouseup', handleGlobalMouseUp)
+    }
+  }, [isDragging, startDragPosition, scrollPosition, isDraggingImage, imageDragStart])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -161,6 +220,7 @@ export default function FigmaAIApp() {
       if (result.success) {
         setImportedImage(result.screenshot)
         setImportMetadata(result.metadata)
+        setImagePosition({ x: 32, y: 32 }) // Reset image position
 
         const uiElements: UIElement[] = result.elements.map((element) => ({
           id: element.id,
@@ -186,6 +246,12 @@ export default function FigmaAIApp() {
   }
 
   const handleElementClick = useCallback((elementId: string, event: React.MouseEvent) => {
+    // Prevent element selection during dragging
+    if (isDragging) {
+      event.preventDefault()
+      return
+    }
+
     const isMultiSelect = event.ctrlKey || event.metaKey
 
     setElements((prev) =>
@@ -198,7 +264,7 @@ export default function FigmaAIApp() {
         return el
       }),
     )
-  }, [])
+  }, [isDragging])
 
   const handleElementMouseEnter = useCallback((elementId: string) => {
     setHoveredElement(elementId)
@@ -212,12 +278,234 @@ export default function FigmaAIApp() {
     setElements((prev) => prev.map((el) => (el.id === elementId ? { ...el, visible: !el.visible } : el)))
   }, [])
 
-  const handleCanvasClick = useCallback((event: React.MouseEvent) => {
-    // Only deselect if clicking on the canvas itself, not on elements
-    if (event.target === event.currentTarget) {
-      setElements((prev) => prev.map((el) => ({ ...el, selected: false })))
+  const [isSpacePressed, setIsSpacePressed] = useState(false)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !e.repeat) {
+        e.preventDefault()
+        setIsSpacePressed(true)
+      }
+    }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        e.preventDefault()
+        setIsSpacePressed(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
     }
   }, [])
+
+  const handleCanvasMouseDown = useCallback((event: React.MouseEvent) => {
+    // Only start canvas dragging if clicking on canvas background and not dragging image
+    if (event.target === event.currentTarget && !isDraggingImage) {
+      if (event.button === 0) {
+        // Left click - start dragging and deselect elements
+        event.preventDefault()
+        event.stopPropagation()
+        
+        const canvas = canvasRef.current
+        if (canvas) {
+          setIsDragging(true)
+          setStartDragPosition({ x: event.clientX, y: event.clientY })
+          setScrollPosition({
+            x: canvas.scrollLeft,
+            y: canvas.scrollTop
+          })
+          
+          // Change cursor style
+          canvas.style.cursor = 'grabbing'
+        }
+        
+        // Deselect elements
+        setElements((prev) => prev.map((el) => ({ ...el, selected: false })))
+      }
+    }
+  }, [isDraggingImage])
+
+  const handleCanvasMouseMove = useCallback((event: React.MouseEvent) => {
+    if (isDragging && startDragPosition && canvasRef.current) {
+      event.preventDefault()
+      event.stopPropagation()
+      
+      const deltaX = event.clientX - startDragPosition.x
+      const deltaY = event.clientY - startDragPosition.y
+      
+      canvasRef.current.scrollLeft = scrollPosition.x - deltaX
+      canvasRef.current.scrollTop = scrollPosition.y - deltaY
+    }
+  }, [isDragging, startDragPosition, scrollPosition])
+
+  const handleCanvasMouseUp = useCallback((event: React.MouseEvent) => {
+    if (isDragging) {
+      event.preventDefault()
+      event.stopPropagation()
+      
+      const canvas = canvasRef.current
+      if (canvas) {
+        setIsDragging(false)
+        setStartDragPosition(null)
+        
+        // Reset cursor style
+        canvas.style.cursor = 'default'
+      }
+    }
+  }, [isDragging])
+
+  // Handle mouse leaving the canvas
+  const handleCanvasMouseLeave = useCallback(() => {
+    if (isDragging) {
+      setIsDragging(false)
+      setStartDragPosition(null)
+      
+      const canvas = canvasRef.current
+      if (canvas) {
+        canvas.style.cursor = 'default'
+      }
+    }
+  }, [isDragging])
+
+  // Update scroll position when scrolling normally
+  const handleCanvasScroll = useCallback(() => {
+    if (!isDragging && canvasRef.current) {
+      setScrollPosition({
+        x: canvasRef.current.scrollLeft,
+        y: canvasRef.current.scrollTop
+      })
+    }
+  }, [isDragging])
+
+  const handleImageMouseDown = useCallback((event: React.MouseEvent) => {
+    if (event.button === 0) {
+      event.preventDefault()
+      event.stopPropagation()
+      
+      setIsDraggingImage(true)
+      setImageDragStart({ x: event.clientX, y: event.clientY })
+    }
+  }, [])
+
+  const handleImageMouseMove = useCallback((event: React.MouseEvent) => {
+    if (isDraggingImage && imageDragStart) {
+      event.preventDefault()
+      event.stopPropagation()
+      
+      const deltaX = event.clientX - imageDragStart.x
+      const deltaY = event.clientY - imageDragStart.y
+      
+      setImagePosition(prev => ({
+        x: prev.x + deltaX,
+        y: prev.y + deltaY
+      }))
+      
+      setImageDragStart({ x: event.clientX, y: event.clientY })
+    }
+  }, [isDraggingImage, imageDragStart])
+
+  const handleImageMouseUp = useCallback((event: React.MouseEvent) => {
+    if (isDraggingImage) {
+      event.preventDefault()
+      event.stopPropagation()
+      
+      setIsDraggingImage(false)
+      setImageDragStart(null)
+    }
+  }, [isDraggingImage])
+
+  const handleFileUpload = async () => {
+    setIsUploading(true)
+    
+    try {
+      // Create a file input element
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'image/*'
+      
+      // Create a promise to handle the file selection
+      const fileSelected = new Promise((resolve, reject) => {
+        input.onchange = (e) => {
+          const file = (e.target as HTMLInputElement).files?.[0]
+          if (!file) {
+            reject(new Error('No file selected'))
+            return
+          }
+
+          // Validate file type
+          const validImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+          if (!validImageTypes.includes(file.type)) {
+            reject(new Error('Please select a valid image file (JPEG, PNG, GIF, or WebP)'))
+            return
+          }
+
+          // Validate file size (max 5MB)
+          const maxSize = 5 * 1024 * 1024 // 5MB in bytes
+          if (file.size > maxSize) {
+            reject(new Error('Image file size must be less than 5MB'))
+            return
+          }
+
+          resolve(file)
+        }
+        
+        // Handle cancel
+        input.oncancel = () => {
+          reject(new Error('File selection cancelled'))
+        }
+      })
+      
+      // Trigger the file input click
+      input.click()
+      
+      // Wait for file selection
+      const file = await fileSelected
+      
+      // Read the file as data URL
+      const imageDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          resolve(e.target?.result as string)
+        }
+        reader.onerror = () => {
+          reject(new Error('Failed to read the image file'))
+        }
+        reader.readAsDataURL(file as Blob)
+      })
+      
+      setImportedImage(imageDataUrl)
+      setElements([]) // Reset elements since this is a new image
+      setImagePosition({ x: 32, y: 32 }) // Reset image position
+      setError(null)
+      
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        // Don't show error for cancelled uploads
+        if (err.message !== 'File selection cancelled') {
+          console.error("Upload error:", err)
+          setError(err.message)
+          
+          // Clear error after 5 seconds
+          setTimeout(() => {
+            setError(null)
+          }, 5000)
+        }
+      } else {
+        setError("An unexpected error occurred while uploading the image")
+        setTimeout(() => {
+          setError(null)
+        }, 5000)
+      }
+    } finally {
+      setIsUploading(false)
+    }
+  }
 
   const handleAITransform = async () => {
     if (!aiPrompt) return
@@ -241,9 +529,10 @@ export default function FigmaAIApp() {
             <div className="w-6 h-6 bg-black rounded-sm flex items-center justify-center">
               <div className="w-3 h-3 bg-white rounded-sm"></div>
             </div>
-            <Button variant="ghost" className="text-2xl font-semibold p-0 h-auto hover:bg-transparent text-green-800">
+            <Button variant="ghost" className="text-2xl font-semibold p-0 h-auto hover:bg-transparent text-green-900">
               Pixie
             </Button>
+
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -313,14 +602,46 @@ export default function FigmaAIApp() {
             </div>
           </div>
 
+          {/* Error Alert */}
+          {error && (
+            <div className="absolute top-4 right-4 z-50">
+              <Alert variant="destructive" className="bg-red-50 border-red-200">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            </div>
+          )}
+
           {/* Canvas */}
-          <div ref={canvasRef} className="flex-1 overflow-auto bg-white relative" onClick={handleCanvasClick} style={{
-            backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.2) 1px, transparent 1px)',
-            backgroundSize: '20px 20px'
-          }}>
+          <div 
+            ref={canvasRef} 
+            className={`flex-1 overflow-auto bg-white relative select-none scroll-smooth`}
+            onMouseDown={handleCanvasMouseDown}
+            onMouseMove={handleCanvasMouseMove}
+            onMouseUp={handleCanvasMouseUp}
+            onMouseLeave={handleCanvasMouseLeave}
+            onScroll={handleCanvasScroll}
+            style={{
+              cursor: isDragging ? 'grabbing' : 'grab',
+              backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.2) 1px, transparent 1px)',
+              backgroundSize: '20px 20px'
+            }}>
             {importedImage ? (
-              <div className="relative inline-block m-8" style={{ transform: `scale(${zoom / 100})`, transformOrigin: "top left" }}>
-                <img src={importedImage} alt="Imported website" className="max-w-none shadow-lg" />
+              <div 
+                className="relative inline-block" 
+                style={{ 
+                  transform: `scale(${zoom / 100})`, 
+                  transformOrigin: "top left",
+                  position: 'absolute',
+                  left: imagePosition.x,
+                  top: imagePosition.y,
+                  cursor: isDraggingImage ? 'grabbing' : 'grab'
+                }}
+                onMouseDown={handleImageMouseDown}
+                onMouseMove={handleImageMouseMove}
+                onMouseUp={handleImageMouseUp}
+              >
+                <img src={importedImage} alt="Imported website" className="max-w-none shadow-lg select-none" />
                 {/* Element Overlays */}
                 {showElementBounds &&
                   elements.map(
@@ -380,15 +701,16 @@ export default function FigmaAIApp() {
           <div className="h-16 bg-white border-t border-gray-200 flex items-center justify-center gap-6 px-8">
             <div className="flex items-center gap-3">
               <Input
-                placeholder="Enter website URL (e.g., https://example.com)"
+                placeholder="Add the link to your website"
                 value={websiteUrl}
                 onChange={(e) => setWebsiteUrl(e.target.value)}
-                className="w-64 bg-white border-gray-200 text-gray-900 placeholder-gray-500"
-                onKeyDown={(e) => e.key === "Enter" && handleImportWebsite()}
+                onClick={handleImportWebsite}
+                readOnly
+                className="w-64 bg-white border-gray-200 text-gray-900 placeholder-gray-500 cursor-pointer"
               />
               <Button 
                 onClick={handleImportWebsite} 
-                disabled={isImporting || !websiteUrl}
+                disabled={isImporting}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4"
               >
                 {isImporting ? (
@@ -406,33 +728,27 @@ export default function FigmaAIApp() {
             </div>
             
             <div className="flex items-center gap-3">
-              <Input
-                placeholder={
-                  selectedElements.length > 0
-                    ? `Upload from computer.`
-                    : "Upload from computer"
-                }
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                disabled={selectedElements.length === 0}
-                className="w-64 bg-white border-gray-200 text-gray-900 placeholder-gray-500"
-              />
-              <Button
-                onClick={handleAITransform}
-                disabled={isGenerating || !aiPrompt || selectedElements.length === 0}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4"
+              <Button 
+                onClick={handleFileUpload} 
+                disabled={isUploading}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 relative group"
+                title="Upload image from your computer (JPEG, PNG, GIF, WebP up to 5MB)"
               >
-                {isGenerating ? (
+                {isUploading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Generating...
+                    Uploading...
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-4 h-4 mr-2" />
-                    Import Image
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload Image
                   </>
                 )}
+                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                  Upload image from your computer<br />
+                  Supports: JPEG, PNG, GIF, WebP (max 5MB)
+                </div>
               </Button>
             </div>
           </div>
