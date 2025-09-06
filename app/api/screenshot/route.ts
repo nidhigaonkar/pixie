@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import puppeteer from 'puppeteer';
+import chromium from '@sparticuz/chromium';
 
 const MAX_TIMEOUT = 30000; // 30 seconds
 const MAX_PAGE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -17,27 +18,39 @@ export async function POST(request: Request) {
       );
     }
 
-    // Launch browser
+    // Launch browser with serverless configuration
+    const isProduction = process.env.NODE_ENV === 'production';
+    
     browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--window-size=1280,800'
-      ]
+      args: isProduction 
+        ? chromium.args.concat([
+            '--hide-scrollbars',
+            '--disable-web-security',
+            '--window-size=1280,800'
+          ])
+        : [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-gpu',
+            '--window-size=1280,800'
+          ],
+      defaultViewport: isProduction ? chromium.defaultViewport : { width: 1280, height: 800 },
+      executablePath: isProduction ? await chromium.executablePath() : undefined,
+      headless: isProduction ? chromium.headless : 'new',
     });
 
     const page = await browser.newPage();
     
-    // Set viewport size
-    await page.setViewport({
-      width: 1280,
-      height: 800,
-      deviceScaleFactor: 1,
-    });
+    // Set viewport size (only needed for local development)
+    if (!isProduction) {
+      await page.setViewport({
+        width: 1280,
+        height: 800,
+        deviceScaleFactor: 1,
+      });
+    }
 
     // Set request timeout
     page.setDefaultTimeout(MAX_TIMEOUT);
