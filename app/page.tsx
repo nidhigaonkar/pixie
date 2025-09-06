@@ -87,6 +87,8 @@ export default function FigmaAIApp() {
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | null>(null)
   const [selectionPrompt, setSelectionPrompt] = useState("")
   const [isProcessingSelection, setIsProcessingSelection] = useState(false)
+  const [promptHistory, setPromptHistory] = useState<{timestamp: number; prompt: string}[]>([])
+  const [showSuccess, setShowSuccess] = useState(false)
   const canvasRef = useRef<HTMLDivElement>(null)
 
   // Handle zoom with mouse wheel
@@ -748,13 +750,23 @@ export default function FigmaAIApp() {
       const finalImageUrl = finalCanvas.toDataURL()
       setImportedImage(finalImageUrl)
 
-      // Clear selection and prompt
-      setSelectionBox(null)
-      setSelectedAspectRatio(null)
-      setSelectionPrompt("")
+      // Add to history
+      setPromptHistory(prev => [{
+        timestamp: Date.now(),
+        prompt: selectionPrompt.trim()
+      }, ...prev])
+
+      // Show success message
+      setShowSuccess(true)
+      setTimeout(() => {
+        setShowSuccess(false)
+      }, 3000)
 
       // Clean up blob URL
       URL.revokeObjectURL(resultImageUrl)
+
+      // Keep aspect ratio and box, just clear prompt
+      setSelectionPrompt("")
 
     } catch (err) {
       console.error("Selection processing error:", err)
@@ -803,7 +815,20 @@ export default function FigmaAIApp() {
               <History className="w-4 h-4 text-gray-600" />
               <span>History</span>
             </div>
-            <div className="text-sm text-gray-500">No transformations yet</div>
+            <div className="space-y-2">
+              {promptHistory.length === 0 ? (
+                <div className="text-sm text-gray-500">No transformations yet</div>
+              ) : (
+                promptHistory.map((item, index) => (
+                  <div key={item.timestamp} className="text-sm bg-gray-50 p-2 rounded">
+                    <div className="text-gray-900">{item.prompt}</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {new Date(item.timestamp).toLocaleTimeString()}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
           
           {/* Toggle Button */}
@@ -846,11 +871,10 @@ export default function FigmaAIApp() {
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <Button variant="ghost" className="text-sm px-3 h-8 bg-blue-50 text-blue-600 hover:bg-blue-100">Export</Button>
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="sm" className="h-8 bg-blue-50 text-blue-600 hover:bg-blue-100 border-b-2 border-blue-500">Design</Button>
-                
               </div>
+              <Button variant="ghost" className="text-sm px-3 h-8 bg-blue-50 text-blue-600 hover:bg-blue-100">Generate Code</Button>
             </div>
           </div>
 
@@ -1067,18 +1091,18 @@ export default function FigmaAIApp() {
         </div>
 
         {/* Right Properties Panel */}
-        <div className={`${rightSidebarOpen ? 'w-80' : 'w-8'} bg-white border-l border-[#e2e8f0] flex flex-col relative transition-all duration-300`}>
+        <div className={`${rightSidebarOpen ? 'w-96' : 'w-8'} bg-white border-l border-[#e2e8f0] flex flex-col relative transition-all duration-300`}>
           {/* Toggle Button */}
           <Button
             variant="ghost"
             size="sm"
-            className="absolute left-0 top-1/2 transform -translate-y-1/2 w-8 h-8 p-0 hover:bg-gray-100 rounded-full z-10 flex items-center justify-center"
+            className="absolute -left-4 top-1/2 transform -translate-y-1/2 w-8 h-8 p-0 hover:bg-gray-100 rounded-full z-10 flex items-center justify-center"
             onClick={() => setRightSidebarOpen(prev => !prev)}
           >
             <ChevronDown className={`w-4 h-4 transform transition-transform ${rightSidebarOpen ? '-rotate-90' : 'rotate-90'} text-gray-600`} />
           </Button>
 
-          <div className={`min-w-[320px] ${rightSidebarOpen ? '' : 'invisible'}`}>
+          <div className={`min-w-[384px] ${rightSidebarOpen ? '' : 'invisible'}`}>
             <div className="p-4 border-b border-[#e2e8f0] flex items-center justify-between">
               <h3 className="text-sm font-medium text-gray-700">Properties</h3>
               <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-100">
@@ -1152,11 +1176,17 @@ export default function FigmaAIApp() {
                         </>
                       )}
                     </Button>
-                    <div className="text-xs text-gray-500 mt-2">
-                      {selectionBox ? (
-                        <>Press <kbd className="bg-gray-200 px-1 py-0.5 rounded">Enter</kbd> to apply</>
+                    <div className="text-xs mt-2">
+                      {showSuccess ? (
+                        <div className="text-green-600 font-medium">Completed! 🍌</div>
+                      ) : selectionBox ? (
+                        <div className="text-gray-500">
+                          Press <kbd className="bg-gray-200 px-1 py-0.5 rounded">Enter</kbd> to apply
+                        </div>
                       ) : (
-                        <>Create a selection on the image to enable</>
+                        <div className="text-gray-500">
+                          Create a selection on the image to enable
+                        </div>
                       )}
                     </div>
                   </div>
