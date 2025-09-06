@@ -31,6 +31,20 @@ import {
 import { captureWebsiteScreenshot, validateUrl, normalizeUrl } from "@/lib/screenshot-service"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
+interface AspectRatio {
+  id: string
+  name: string
+  ratio: number // width/height
+}
+
+const ASPECT_RATIOS: AspectRatio[] = [
+  { id: 'square', name: '1:1 (Square)', ratio: 1 },
+  { id: 'portrait', name: '3:4 (Portrait full screen)', ratio: 3/4 },
+  { id: 'fullscreen', name: '4:3 (Fullscreen)', ratio: 4/3 },
+  { id: 'mobile', name: '9:16 (Portrait, common for mobile)', ratio: 9/16 },
+  { id: 'widescreen', name: '16:9 (Widescreen)', ratio: 16/9 }
+]
+
 interface UIElement {
   id: string
   position: { x: number; y: number; width: number; height: number }
@@ -56,16 +70,21 @@ export default function FigmaAIApp() {
   const [importMetadata, setImportMetadata] = useState<any>(null)
   const [hoveredElement, setHoveredElement] = useState<string | null>(null)
   const [showElementBounds, setShowElementBounds] = useState(true)
-  const [isSelecting, setIsSelecting] = useState(false)
-  const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true)
   const [isDragging, setIsDragging] = useState(false)
   const [startDragPosition, setStartDragPosition] = useState<{ x: number; y: number } | null>(null)
   const [scrollPosition, setScrollPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
-  const [isDraggingImage, setIsDraggingImage] = useState(false)
-  const [imagePosition, setImagePosition] = useState<{ x: number; y: number }>({ x: 32, y: 32 })
-  const [imageDragStart, setImageDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [imagePosition] = useState<{ x: number; y: number }>({ x: 32, y: 32 })
+  const [isSelecting, setIsSelecting] = useState(false)
+  const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null)
+  const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
+  const [isMovingBox, setIsMovingBox] = useState(false)
+  const [moveStart, setMoveStart] = useState<{ x: number; y: number } | null>(null)
+  const [isResizing, setIsResizing] = useState(false)
+  const [resizeHandle, setResizeHandle] = useState<'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | null>(null)
+  const [resizeStart, setResizeStart] = useState<{ x: number; y: number } | null>(null)
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
 
   // Handle zoom with mouse wheel
@@ -100,18 +119,6 @@ export default function FigmaAIApp() {
         
         canvasRef.current.scrollLeft = scrollPosition.x - deltaX
         canvasRef.current.scrollTop = scrollPosition.y - deltaY
-      } else if (isDraggingImage && imageDragStart) {
-        e.preventDefault()
-        
-        const deltaX = e.clientX - imageDragStart.x
-        const deltaY = e.clientY - imageDragStart.y
-        
-        setImagePosition(prev => ({
-          x: prev.x + deltaX,
-          y: prev.y + deltaY
-        }))
-        
-        setImageDragStart({ x: e.clientX, y: e.clientY })
       }
     }
 
@@ -124,13 +131,10 @@ export default function FigmaAIApp() {
         if (canvas) {
           canvas.style.cursor = 'grab'
         }
-      } else if (isDraggingImage) {
-        setIsDraggingImage(false)
-        setImageDragStart(null)
       }
     }
 
-    if (isDragging || isDraggingImage) {
+    if (isDragging) {
       document.addEventListener('mousemove', handleGlobalMouseMove)
       document.addEventListener('mouseup', handleGlobalMouseUp)
     }
@@ -139,7 +143,98 @@ export default function FigmaAIApp() {
       document.removeEventListener('mousemove', handleGlobalMouseMove)
       document.removeEventListener('mouseup', handleGlobalMouseUp)
     }
-  }, [isDragging, startDragPosition, scrollPosition, isDraggingImage, imageDragStart])
+  }, [isDragging, startDragPosition, scrollPosition])
+
+  // Global mouse events for selection box manipulation
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (isMovingBox && moveStart && selectionBox) {
+        e.preventDefault()
+        
+        const deltaX = e.clientX - moveStart.x
+        const deltaY = e.clientY - moveStart.y
+        
+        setSelectionBox(prev => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            x: prev.x + deltaX,
+            y: prev.y + deltaY
+          }
+        })
+        
+        setMoveStart({ x: e.clientX, y: e.clientY })
+      } else if (isResizing && resizeStart && selectionBox && selectedAspectRatio) {
+        e.preventDefault()
+        
+        const deltaX = e.clientX - resizeStart.x
+        const deltaY = e.clientY - resizeStart.y
+        
+        // Calculate new dimensions based on aspect ratio
+        let newWidth = selectionBox.width
+        let newHeight = selectionBox.height
+        let newX = selectionBox.x
+        let newY = selectionBox.y
+        
+        switch (resizeHandle) {
+          case 'top-left':
+            newWidth = selectionBox.width - deltaX
+            newHeight = newWidth / selectedAspectRatio.ratio
+            newX = selectionBox.x + deltaX
+            newY = selectionBox.y + (selectionBox.height - newHeight)
+            break
+          case 'top-right':
+            newWidth = selectionBox.width + deltaX
+            newHeight = newWidth / selectedAspectRatio.ratio
+            newY = selectionBox.y + (selectionBox.height - newHeight)
+            break
+          case 'bottom-left':
+            newWidth = selectionBox.width - deltaX
+            newHeight = newWidth / selectedAspectRatio.ratio
+            newX = selectionBox.x + deltaX
+            break
+          case 'bottom-right':
+            newWidth = selectionBox.width + deltaX
+            newHeight = newWidth / selectedAspectRatio.ratio
+            break
+        }
+        
+        // Ensure minimum size
+        if (newWidth >= 50 && newHeight >= 50) {
+          setSelectionBox({
+            x: newX,
+            y: newY,
+            width: newWidth,
+            height: newHeight
+          })
+        }
+        
+        setResizeStart({ x: e.clientX, y: e.clientY })
+      }
+    }
+
+    const handleGlobalMouseUp = () => {
+      if (isResizing) {
+        setIsResizing(false)
+        setResizeHandle(null)
+        setResizeStart(null)
+      }
+      if (isMovingBox) {
+        setIsMovingBox(false)
+        setMoveStart(null)
+      }
+    }
+
+    if (isMovingBox || isResizing) {
+      document.addEventListener('mousemove', handleGlobalMouseMove)
+      document.addEventListener('mouseup', handleGlobalMouseUp)
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove)
+      document.removeEventListener('mouseup', handleGlobalMouseUp)
+    }
+  }, [isMovingBox, moveStart, isResizing, resizeStart, resizeHandle, selectionBox, selectedAspectRatio])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -220,7 +315,7 @@ export default function FigmaAIApp() {
       if (result.success) {
         setImportedImage(result.screenshot)
         setImportMetadata(result.metadata)
-        setImagePosition({ x: 32, y: 32 }) // Reset image position
+        // Image position is fixed at 32, 32
 
         const uiElements: UIElement[] = result.elements.map((element) => ({
           id: element.id,
@@ -279,6 +374,7 @@ export default function FigmaAIApp() {
   }, [])
 
   const [isSpacePressed, setIsSpacePressed] = useState(false)
+  const [isControlPressed, setIsControlPressed] = useState(false)
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -286,12 +382,18 @@ export default function FigmaAIApp() {
         e.preventDefault()
         setIsSpacePressed(true)
       }
+      if ((e.ctrlKey || e.metaKey) && !e.repeat) {
+        setIsControlPressed(true)
+      }
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         e.preventDefault()
         setIsSpacePressed(false)
+      }
+      if (!e.ctrlKey && !e.metaKey) {
+        setIsControlPressed(false)
       }
     }
 
@@ -305,8 +407,8 @@ export default function FigmaAIApp() {
   }, [])
 
   const handleCanvasMouseDown = useCallback((event: React.MouseEvent) => {
-    // Only start canvas dragging if clicking on canvas background and not dragging image
-    if (event.target === event.currentTarget && !isDraggingImage) {
+    // Only handle events if clicking on canvas background
+    if (event.target === event.currentTarget) {
       if (event.button === 0) {
         // Left click - start dragging and deselect elements
         event.preventDefault()
@@ -327,9 +429,24 @@ export default function FigmaAIApp() {
         
         // Deselect elements
         setElements((prev) => prev.map((el) => ({ ...el, selected: false })))
+      } else if (event.button === 2 && (event.ctrlKey || event.metaKey)) {
+        // Control + Right click - start selection
+        event.preventDefault()
+        event.stopPropagation()
+        
+        const canvas = canvasRef.current
+        if (canvas) {
+          const rect = canvas.getBoundingClientRect()
+          const x = event.clientX - rect.left + canvas.scrollLeft
+          const y = event.clientY - rect.top + canvas.scrollTop
+          
+          setIsSelecting(true)
+          setSelectionStart({ x, y })
+          setSelectionBox({ x, y, width: 0, height: 0 })
+        }
       }
     }
-  }, [isDraggingImage])
+  }, [])
 
   const handleCanvasMouseMove = useCallback((event: React.MouseEvent) => {
     if (isDragging && startDragPosition && canvasRef.current) {
@@ -341,8 +458,26 @@ export default function FigmaAIApp() {
       
       canvasRef.current.scrollLeft = scrollPosition.x - deltaX
       canvasRef.current.scrollTop = scrollPosition.y - deltaY
+    } else if (isSelecting && selectionStart && canvasRef.current) {
+      event.preventDefault()
+      event.stopPropagation()
+      
+      const canvas = canvasRef.current
+      const rect = canvas.getBoundingClientRect()
+      const currentX = event.clientX - rect.left + canvas.scrollLeft
+      const currentY = event.clientY - rect.top + canvas.scrollTop
+      
+      const width = currentX - selectionStart.x
+      const height = currentY - selectionStart.y
+      
+      setSelectionBox({
+        x: width > 0 ? selectionStart.x : currentX,
+        y: height > 0 ? selectionStart.y : currentY,
+        width: Math.abs(width),
+        height: Math.abs(height)
+      })
     }
-  }, [isDragging, startDragPosition, scrollPosition])
+  }, [isDragging, startDragPosition, scrollPosition, isSelecting, selectionStart])
 
   const handleCanvasMouseUp = useCallback((event: React.MouseEvent) => {
     if (isDragging) {
@@ -357,8 +492,15 @@ export default function FigmaAIApp() {
         // Reset cursor style
         canvas.style.cursor = 'default'
       }
+    } else if (isSelecting) {
+      event.preventDefault()
+      event.stopPropagation()
+      
+      setIsSelecting(false)
+      setSelectionStart(null)
+      // Keep the selection box visible for now
     }
-  }, [isDragging])
+  }, [isDragging, isSelecting])
 
   // Handle mouse leaving the canvas
   const handleCanvasMouseLeave = useCallback(() => {
@@ -371,7 +513,12 @@ export default function FigmaAIApp() {
         canvas.style.cursor = 'default'
       }
     }
-  }, [isDragging])
+    if (isSelecting) {
+      setIsSelecting(false)
+      setSelectionStart(null)
+      setSelectionBox(null)
+    }
+  }, [isDragging, isSelecting])
 
   // Update scroll position when scrolling normally
   const handleCanvasScroll = useCallback(() => {
@@ -383,42 +530,6 @@ export default function FigmaAIApp() {
     }
   }, [isDragging])
 
-  const handleImageMouseDown = useCallback((event: React.MouseEvent) => {
-    if (event.button === 0) {
-      event.preventDefault()
-      event.stopPropagation()
-      
-      setIsDraggingImage(true)
-      setImageDragStart({ x: event.clientX, y: event.clientY })
-    }
-  }, [])
-
-  const handleImageMouseMove = useCallback((event: React.MouseEvent) => {
-    if (isDraggingImage && imageDragStart) {
-      event.preventDefault()
-      event.stopPropagation()
-      
-      const deltaX = event.clientX - imageDragStart.x
-      const deltaY = event.clientY - imageDragStart.y
-      
-      setImagePosition(prev => ({
-        x: prev.x + deltaX,
-        y: prev.y + deltaY
-      }))
-      
-      setImageDragStart({ x: event.clientX, y: event.clientY })
-    }
-  }, [isDraggingImage, imageDragStart])
-
-  const handleImageMouseUp = useCallback((event: React.MouseEvent) => {
-    if (isDraggingImage) {
-      event.preventDefault()
-      event.stopPropagation()
-      
-      setIsDraggingImage(false)
-      setImageDragStart(null)
-    }
-  }, [isDraggingImage])
 
   const handleFileUpload = async () => {
     setIsUploading(true)
@@ -481,7 +592,7 @@ export default function FigmaAIApp() {
       
       setImportedImage(imageDataUrl)
       setElements([]) // Reset elements since this is a new image
-      setImagePosition({ x: 32, y: 32 }) // Reset image position
+      // Image position is fixed at 32, 32
       setError(null)
       
     } catch (err: unknown) {
@@ -621,8 +732,9 @@ export default function FigmaAIApp() {
             onMouseUp={handleCanvasMouseUp}
             onMouseLeave={handleCanvasMouseLeave}
             onScroll={handleCanvasScroll}
+            onContextMenu={(e) => e.preventDefault()}
             style={{
-              cursor: isDragging ? 'grabbing' : 'grab',
+              cursor: isControlPressed ? 'crosshair' : 'default',
               backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.2) 1px, transparent 1px)',
               backgroundSize: '20px 20px'
             }}>
@@ -635,13 +747,71 @@ export default function FigmaAIApp() {
                   position: 'absolute',
                   left: imagePosition.x,
                   top: imagePosition.y,
-                  cursor: isDraggingImage ? 'grabbing' : 'grab'
+                  cursor: isSelecting ? 'crosshair' : isControlPressed ? 'crosshair' : 'default'
                 }}
-                onMouseDown={handleImageMouseDown}
-                onMouseMove={handleImageMouseMove}
-                onMouseUp={handleImageMouseUp}
+                onContextMenu={(e) => e.preventDefault()}
               >
                 <img src={importedImage} alt="Imported website" className="max-w-none shadow-lg select-none" />
+                {/* Selection Box */}
+                {selectionBox && selectedAspectRatio && (
+                  <div
+                    className="absolute border-2 border-blue-500 bg-blue-500/20"
+                    style={{
+                      left: selectionBox.x,
+                      top: selectionBox.y,
+                      width: selectionBox.width,
+                      height: selectionBox.height,
+                      cursor: isResizing ? 'grabbing' : isMovingBox ? 'grabbing' : 'grab'
+                    }}
+                    onMouseDown={(e) => {
+                      // Handle left click for dragging, ignore if already resizing
+                      if (e.button === 0 && !isResizing) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setIsMovingBox(true)
+                        setMoveStart({ x: e.clientX, y: e.clientY })
+                      }
+                    }}
+                  >
+                    {/* Resize Handles */}
+                    <div
+                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-nw-resize -left-1.5 -top-1.5"
+                      onMouseDown={(e) => {
+                        e.stopPropagation()
+                        setIsResizing(true)
+                        setResizeHandle('top-left')
+                        setResizeStart({ x: e.clientX, y: e.clientY })
+                      }}
+                    />
+                    <div
+                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-ne-resize -right-1.5 -top-1.5"
+                      onMouseDown={(e) => {
+                        e.stopPropagation()
+                        setIsResizing(true)
+                        setResizeHandle('top-right')
+                        setResizeStart({ x: e.clientX, y: e.clientY })
+                      }}
+                    />
+                    <div
+                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-sw-resize -left-1.5 -bottom-1.5"
+                      onMouseDown={(e) => {
+                        e.stopPropagation()
+                        setIsResizing(true)
+                        setResizeHandle('bottom-left')
+                        setResizeStart({ x: e.clientX, y: e.clientY })
+                      }}
+                    />
+                    <div
+                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-se-resize -right-1.5 -bottom-1.5"
+                      onMouseDown={(e) => {
+                        e.stopPropagation()
+                        setIsResizing(true)
+                        setResizeHandle('bottom-right')
+                        setResizeStart({ x: e.clientX, y: e.clientY })
+                      }}
+                    />
+                  </div>
+                )}
                 {/* Element Overlays */}
                 {showElementBounds &&
                   elements.map(
@@ -776,15 +946,47 @@ export default function FigmaAIApp() {
             </div>
 
             <div className="flex-1 p-4">
-              <div className="text-center text-gray-500">
-                <p className="mb-4">Select an element to view properties</p>
-                <div className="text-sm space-y-2 text-left">
-                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Click</kbd> to select</div>
-                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+Click</kbd> multi-select</div>
-                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Esc</kbd> deselect all</div>
-                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Del</kbd> remove selected</div>
-                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+A</kbd> select all</div>
-                  <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+D</kbd> duplicate</div>
+              <div className="space-y-4">
+                <div className="text-sm font-medium text-gray-700 mb-2">Aspect Ratios</div>
+                <div className="space-y-2">
+                  {ASPECT_RATIOS.map((ratio) => (
+                    <Button
+                      key={ratio.id}
+                      variant={selectedAspectRatio?.id === ratio.id ? "default" : "outline"}
+                      className="w-full justify-start text-left"
+                      onClick={() => {
+                        setSelectedAspectRatio(ratio)
+                        // Create initial selection box in the center of the image
+                        if (importedImage && canvasRef.current) {
+                          const canvas = canvasRef.current
+                          const rect = canvas.getBoundingClientRect()
+                          const centerX = rect.width / 2
+                          const centerY = rect.height / 2
+                          const initialWidth = 200 // Base width
+                          const height = initialWidth / ratio.ratio
+                          setSelectionBox({
+                            x: centerX - initialWidth / 2,
+                            y: centerY - height / 2,
+                            width: initialWidth,
+                            height: height
+                          })
+                        }
+                      }}
+                    >
+                      {ratio.name}
+                    </Button>
+                  ))}
+                </div>
+                
+                <div className="border-t border-gray-200 pt-4">
+                  <div className="text-sm space-y-2">
+                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Click</kbd> to select</div>
+                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+Click</kbd> multi-select</div>
+                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Esc</kbd> deselect all</div>
+                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Del</kbd> remove selected</div>
+                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+A</kbd> select all</div>
+                    <div><kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Ctrl+D</kbd> duplicate</div>
+                  </div>
                 </div>
               </div>
             </div>
