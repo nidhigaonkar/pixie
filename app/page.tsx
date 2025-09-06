@@ -17,6 +17,8 @@ import {
   ChevronDown,
   Plus,
   Mic,
+  X,
+  Code,
 } from "lucide-react"
 import { captureWebsiteScreenshot, validateUrl, normalizeUrl } from "@/lib/screenshot-service"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -34,6 +36,7 @@ const ASPECT_RATIOS: AspectRatio[] = [
   { id: 'mobile', name: '9:16 (Portrait, common for mobile)', ratio: 9/16 },
   { id: 'widescreen', name: '16:9 (Widescreen)', ratio: 16/9 }
 ]
+
 
 
 export default function FigmaAIApp() {
@@ -66,6 +69,7 @@ export default function FigmaAIApp() {
   const [promptHistory, setPromptHistory] = useState<{timestamp: number; prompt: string}[]>([])
   const [showSuccess, setShowSuccess] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
+  const [currentView, setCurrentView] = useState<'design' | 'code'>('design')
   const canvasRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -618,6 +622,10 @@ export default function FigmaAIApp() {
     }, 3000)
   }
 
+  const handleGenerateCode = () => {
+    setCurrentView('code')
+  }
+
   const handleSelectionSubmit = async () => {
     if (!selectionBox || !selectedAspectRatio || !importedImage || !selectionPrompt.trim()) {
       return
@@ -842,9 +850,23 @@ export default function FigmaAIApp() {
             </div>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" className="h-8 bg-blue-50 text-blue-600 hover:bg-blue-100 border-b-2 border-blue-500">Design</Button>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className={`h-8 ${currentView === 'design' ? 'bg-blue-50 text-blue-600 hover:bg-blue-100 border-b-2 border-blue-500' : 'text-gray-600 hover:bg-gray-100'}`}
+                  onClick={() => setCurrentView('design')}
+                >
+                  Design
+                </Button>
               </div>
-              <Button variant="ghost" className="text-sm px-3 h-8 bg-blue-50 text-blue-600 hover:bg-blue-100">Generate Code</Button>
+              <Button 
+                variant="ghost" 
+                size="sm"
+                className={`h-8 px-3 ${currentView === 'code' ? 'bg-blue-50 text-blue-600 hover:bg-blue-100 border-b-2 border-blue-500' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                onClick={handleGenerateCode}
+              >
+                Generate Code
+              </Button>
               <Button variant="ghost" className="text-sm px-3 h-8 bg-blue-50 text-blue-600 hover:bg-blue-100">Copy Prompt</Button>
             </div>
           </div>
@@ -863,17 +885,20 @@ export default function FigmaAIApp() {
           <div 
             ref={canvasRef} 
             className={`flex-1 overflow-auto bg-white relative select-none scroll-smooth`}
-            onMouseDown={handleCanvasMouseDown}
-            onMouseMove={handleCanvasMouseMove}
-            onMouseUp={handleCanvasMouseUp}
-            onMouseLeave={handleCanvasMouseLeave}
-            onScroll={handleCanvasScroll}
+            onMouseDown={currentView === 'design' ? handleCanvasMouseDown : undefined}
+            onMouseMove={currentView === 'design' ? handleCanvasMouseMove : undefined}
+            onMouseUp={currentView === 'design' ? handleCanvasMouseUp : undefined}
+            onMouseLeave={currentView === 'design' ? handleCanvasMouseLeave : undefined}
+            onScroll={currentView === 'design' ? handleCanvasScroll : undefined}
             onContextMenu={(e) => e.preventDefault()}
             style={{
-              cursor: isControlPressed ? 'crosshair' : 'default',
-              backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.2) 1px, transparent 1px)',
-              backgroundSize: '20px 20px'
+              cursor: currentView === 'design' && isControlPressed ? 'crosshair' : 'default',
+              backgroundImage: currentView === 'design' ? 'radial-gradient(circle, rgba(0,0,0,0.2) 1px, transparent 1px)' : 'none',
+              backgroundSize: currentView === 'design' ? '20px 20px' : 'auto'
             }}>
+            {/* Render content based on current view */}
+            {currentView === 'design' ? (
+              <>
             {importedImage ? (
               <div 
                 className="relative inline-block" 
@@ -958,9 +983,21 @@ export default function FigmaAIApp() {
                 </div>
               </div>
             )}
+              </>
+            ) : (
+              // Code tab content - blank screen
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center text-gray-400">
+                  <Code className="w-16 h-16 mx-auto mb-4" />
+                  <p className="text-lg mb-2 font-medium">Code View</p>
+                  <p className="text-sm">Generated code will appear here</p>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Bottom Input Bar */}
+          {/* Bottom Input Bar - Only show for design view */}
+          {currentView === 'design' && (
           <div className="h-16 bg-white border-t border-gray-200 flex items-center justify-center gap-6 px-8">
             <div className="flex items-center gap-3">
               <Input
@@ -1013,6 +1050,7 @@ export default function FigmaAIApp() {
               </Button>
             </div>
           </div>
+          )}
 
         </div>
 
@@ -1046,21 +1084,28 @@ export default function FigmaAIApp() {
                       variant={selectedAspectRatio?.id === ratio.id ? "default" : "outline"}
                       className="w-full justify-start text-left"
                       onClick={() => {
-                        setSelectedAspectRatio(ratio)
-                        // Create initial selection box in the center of the image
-                        if (importedImage && canvasRef.current) {
-                          const canvas = canvasRef.current
-                          const rect = canvas.getBoundingClientRect()
-                          const centerX = rect.width / 2
-                          const centerY = rect.height / 2
-                          const initialWidth = 200 // Base width
-                          const height = initialWidth / ratio.ratio
-                          setSelectionBox({
-                            x: centerX - initialWidth / 2,
-                            y: centerY - height / 2,
-                            width: initialWidth,
-                            height: height
-                          })
+                        if (selectedAspectRatio?.id === ratio.id) {
+                          // If the same ratio is clicked again, deselect it
+                          setSelectedAspectRatio(null)
+                          setSelectionBox(null)
+                        } else {
+                          // Select the new ratio
+                          setSelectedAspectRatio(ratio)
+                          // Create initial selection box in the center of the image
+                          if (importedImage && canvasRef.current) {
+                            const canvas = canvasRef.current
+                            const rect = canvas.getBoundingClientRect()
+                            const centerX = rect.width / 2
+                            const centerY = rect.height / 2
+                            const initialWidth = 200 // Base width
+                            const height = initialWidth / ratio.ratio
+                            setSelectionBox({
+                              x: centerX - initialWidth / 2,
+                              y: centerY - height / 2,
+                              width: initialWidth,
+                              height: height
+                            })
+                          }
                         }
                       }}
                     >
