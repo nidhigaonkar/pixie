@@ -46,6 +46,9 @@ export default function FigmaAIApp() {
   const [aiPrompt, setAiPrompt] = useState("")
   const [isImporting, setIsImporting] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false)
+  const [showCodePopup, setShowCodePopup] = useState(false)
+  const [codePopupData, setCodePopupData] = useState<{htmlPath: string; viewUrl?: string} | null>(null)
   const [importedImage, setImportedImage] = useState<string | null>(null)
   const [zoom, setZoom] = useState(100)
   const [error, setError] = useState<string | null>(null)
@@ -70,7 +73,7 @@ export default function FigmaAIApp() {
   const [promptHistory, setPromptHistory] = useState<{timestamp: number; prompt: string; requestId: string}[]>([])
   const [showSuccess, setShowSuccess] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
-  const [currentView, setCurrentView] = useState<'design' | 'code'>('design')
+  const [currentView, setCurrentView] = useState<'design'>('design')
   const [imageHistory, setImageHistory] = useState<string[]>([])
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1)
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
@@ -681,8 +684,78 @@ export default function FigmaAIApp() {
     }, 3000)
   }
 
-  const handleGenerateCode = () => {
-    setCurrentView('code')
+  const handleGenerateCode = async () => {
+    if (!importedImage) {
+      setError('Please import an image first')
+      setTimeout(() => setError(null), 5000)
+      return
+    }
+
+    setIsGeneratingCode(true)
+    setError(null)
+
+    try {
+      // Convert base64 image to blob
+      const base64Response = await fetch(importedImage)
+      const blob = await base64Response.blob()
+      
+      // Prepare form data
+      const requestId = `pixie_code_${Date.now()}`
+      const formData = new FormData()
+      formData.append('request_id', requestId)
+      formData.append('image', blob, 'image.png')
+
+      console.log('🔄 Making image-to-HTML API call:', {
+        endpoint: 'https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/to-html',
+        requestId: requestId,
+        imageSize: blob.size
+      })
+
+      // Make API call
+      const response = await fetch('https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/to-html', {
+        method: 'POST',
+        headers: {
+          'X-API-Key': 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
+        },
+        body: formData
+      })
+
+      console.log('📥 API Response status:', response.status, response.statusText)
+
+      if (!response.ok) {
+        console.error('❌ API request failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          requestId: requestId
+        })
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      console.log('✅ API Response data:', result)
+      
+      // Show popup with HTML path
+      if (result.html_path) {
+        setCodePopupData({
+          htmlPath: result.html_path,
+          viewUrl: result.view_url
+        })
+        setShowCodePopup(true)
+      } else {
+        throw new Error('No HTML path returned from API')
+      }
+
+    } catch (err) {
+      console.error('Generate code error:', err)
+      setError(err instanceof Error ? err.message : "Failed to generate code")
+      
+      // Clear error after 5 seconds
+      setTimeout(() => {
+        setError(null)
+      }, 5000)
+    } finally {
+      setIsGeneratingCode(false)
+    }
   }
 
   const handleSelectionSubmit = async () => {
@@ -1108,8 +1181,7 @@ export default function FigmaAIApp() {
                 <Button 
                   variant="ghost" 
                   size="sm" 
-                  className={`h-8 ${currentView === 'design' ? 'bg-green-50 text-green-600 hover:bg-green-100 border-b-2 border-green-500' : 'text-green-600 hover:bg-gray-100'}`}
-                  onClick={() => setCurrentView('design')}
+                  className="h-8 bg-green-50 text-green-600 hover:bg-green-100 border-b-2 border-green-500"
                 >
                   Design
                 </Button>
@@ -1117,10 +1189,21 @@ export default function FigmaAIApp() {
               <Button 
                 variant="ghost" 
                 size="sm"
-                className={`h-8 px-3 ${currentView === 'code' ? 'bg-green-50 text-green-600 hover:bg-green-100 border-b-2 border-green-500' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
+                className="h-8 px-3 bg-green-50 text-green-600 hover:bg-green-100"
                 onClick={handleGenerateCode}
+                disabled={isGeneratingCode || !importedImage}
               >
-                Generate Code
+                {isGeneratingCode ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Code className="w-4 h-4 mr-2" />
+                    Generate Code
+                  </>
+                )}
               </Button>
               <Button 
                 variant="ghost" 
@@ -1157,20 +1240,17 @@ export default function FigmaAIApp() {
           <div 
             ref={canvasRef} 
             className={`flex-1 overflow-auto bg-white relative select-none scroll-smooth`}
-            onMouseDown={currentView === 'design' ? handleCanvasMouseDown : undefined}
-            onMouseMove={currentView === 'design' ? handleCanvasMouseMove : undefined}
-            onMouseUp={currentView === 'design' ? handleCanvasMouseUp : undefined}
-            onMouseLeave={currentView === 'design' ? handleCanvasMouseLeave : undefined}
-            onScroll={currentView === 'design' ? handleCanvasScroll : undefined}
+            onMouseDown={handleCanvasMouseDown}
+            onMouseMove={handleCanvasMouseMove}
+            onMouseUp={handleCanvasMouseUp}
+            onMouseLeave={handleCanvasMouseLeave}
+            onScroll={handleCanvasScroll}
             onContextMenu={(e) => e.preventDefault()}
             style={{
-              cursor: currentView === 'design' && isControlPressed ? 'crosshair' : 'default',
-              backgroundImage: currentView === 'design' ? 'radial-gradient(circle, rgba(0,0,0,0.2) 1px, transparent 1px)' : 'none',
-              backgroundSize: currentView === 'design' ? '20px 20px' : 'auto'
+              cursor: isControlPressed ? 'crosshair' : 'default',
+              backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.2) 1px, transparent 1px)',
+              backgroundSize: '20px 20px'
             }}>
-            {/* Render content based on current view */}
-            {currentView === 'design' ? (
-              <>
             {importedImage ? (
               <div 
                 className="relative inline-block" 
@@ -1255,21 +1335,9 @@ export default function FigmaAIApp() {
                 </div>
               </div>
             )}
-              </>
-            ) : (
-              // Code tab content - blank screen
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center text-gray-400">
-                  <Code className="w-16 h-16 mx-auto mb-4" />
-                  <p className="text-lg mb-2 font-medium">Code View</p>
-                  <p className="text-sm">Generated code will appear here</p>
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* Bottom Input Bar - Only show for design view */}
-          {currentView === 'design' && (
+          {/* Bottom Input Bar */}
           <div className="h-16 bg-white border-t border-gray-200 flex items-center justify-center gap-4 px-8">
             <div className="flex items-center gap-3">
               <Input
@@ -1322,7 +1390,6 @@ export default function FigmaAIApp() {
               </Button>
             </div>
           </div>
-          )}
 
         </div>
 
@@ -1457,6 +1524,48 @@ export default function FigmaAIApp() {
           </div>
         </div>
       </div>
+
+      {/* Code Generation Success Popup */}
+      {showCodePopup && codePopupData && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">Code Generated Successfully! 🎉</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowCodePopup(false)}
+                className="h-8 w-8 p-0 hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6">
+              <p className="text-gray-600 mb-4">Your HTML code has been generated and is ready to view!</p>
+              
+              <div className="space-y-3">
+                <Button
+                  onClick={() => {
+                    window.open(codePopupData.htmlPath, '_blank')
+                    setShowCodePopup(false)
+                  }}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <Code className="w-4 h-4 mr-2" />
+                  View Generated HTML
+                </Button>
+                
+                <div className="text-xs text-gray-500 break-all bg-gray-50 p-2 rounded">
+                  {codePopupData.htmlPath}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Prompt Popup Modal */}
       {showPromptPopup && promptPopupData && (
