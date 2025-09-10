@@ -5,24 +5,20 @@ import type React from "react"
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Separator } from "@/components/ui/separator"
-import {
-  ZoomIn,
-  ZoomOut,
-  History,
-  Sparkles,
-  Upload,
-  Loader2,
-  AlertCircle,
-  ChevronDown,
-  Plus,
-  Mic,
-  X,
-  Code,
-  Copy,
-} from "lucide-react"
-import { captureWebsiteScreenshot, validateUrl, normalizeUrl } from "@/lib/screenshot-service"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Separator } from "@/components/ui/separator"
+import { AlertCircle, Upload, Download, Sparkles, Mic, MicOff, Loader2, Settings, Eye, EyeOff, X, Copy, History, ChevronDown, ZoomOut, ZoomIn, Code, Plus } from "lucide-react"
+import { captureWebsiteScreenshot, validateUrl, normalizeUrl } from "@/lib/screenshot-service"
+import TopBar from "./components/TopBar"
+import LeftSidebar from "./components/LeftSidebar"
+import CanvasHeader from "./components/CanvasHeader"
+import BottomBar from "./components/BottomBar"
+import RightPanel from "./components/RightPanel"
+
+// Helper function to get the Pixie API URL with fallback
+const getPixieApiUrl = () => {
+  return process.env.NEXT_PUBLIC_PIXIE_API_URL || 'http://0.0.0.0:9000'
+}
 
 interface AspectRatio {
   id: string
@@ -69,8 +65,12 @@ export default function FigmaAIApp() {
   const [resizeStart, setResizeStart] = useState<{ x: number; y: number } | null>(null)
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio | null>(null)
   const [selectionPrompt, setSelectionPrompt] = useState("")
+  const [referenceImage, setReferenceImage] = useState<string | null>(null)
   const [isProcessingSelection, setIsProcessingSelection] = useState(false)
   const [promptHistory, setPromptHistory] = useState<{timestamp: number; prompt: string; requestId: string}[]>([])
+  const [promptCache, setPromptCache] = useState<{[historyIndex: number]: {instructions: string; assets: any[]}}>({})
+  const [showPromptPanel, setShowPromptPanel] = useState(false)
+  const [copySuccess, setCopySuccess] = useState<string | null>(null)
   const [showSuccess, setShowSuccess] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [currentView, setCurrentView] = useState<'design'>('design')
@@ -79,9 +79,153 @@ export default function FigmaAIApp() {
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
   const [showPromptPopup, setShowPromptPopup] = useState(false)
   const [promptPopupData, setPromptPopupData] = useState<{instructions: string; assets: any[]} | null>(null)
+  const [imageNaturalSize, setImageNaturalSize] = useState<{ width: number; height: number } | null>(null)
+  const imageWrapperRef = useRef<HTMLDivElement>(null)
+  const [geminiApiKey, setGeminiApiKey] = useState<string>('')
+  const [elevenlabsApiKey, setElevenlabsApiKey] = useState<string>('')
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false)
+  const [tempGeminiApiKey, setTempGeminiApiKey] = useState<string>('')
+  const [tempElevenlabsApiKey, setTempElevenlabsApiKey] = useState<string>('')
+  const [isValidatingGemini, setIsValidatingGemini] = useState(false)
+  const [geminiValidationResult, setGeminiValidationResult] = useState<{valid: boolean; message: string} | null>(null)
+  const [showModelSettingsModal, setShowModelSettingsModal] = useState(false)
+  const [imageGenerationModel, setImageGenerationModel] = useState('gemini-2.5-flash-image-preview')
+  const [codeGenerationModel, setCodeGenerationModel] = useState('gemini-2.5-pro')
+  const [tempImageGenerationModel, setTempImageGenerationModel] = useState('gemini-2.5-flash-image-preview')
+  const [tempCodeGenerationModel, setTempCodeGenerationModel] = useState('gemini-2.5-pro')
   const canvasRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
+
+  // Load API keys from localStorage on component mount
+  useEffect(() => {
+    const savedGeminiApiKey = localStorage.getItem('gemini_api_key')
+    const savedElevenlabsApiKey = localStorage.getItem('elevenlabs_api_key')
+    
+    if (savedGeminiApiKey) {
+      setGeminiApiKey(savedGeminiApiKey)
+    }
+    if (savedElevenlabsApiKey) {
+      setElevenlabsApiKey(savedElevenlabsApiKey)
+    }
+    
+    // Show API key modal if no Gemini key is saved (required)
+    if (!savedGeminiApiKey) {
+      setShowApiKeyModal(true)
+    }
+
+    const savedImageModel = localStorage.getItem('imageGenerationModel')
+    const savedCodeModel = localStorage.getItem('codeGenerationModel')
+    if (savedImageModel) {
+      setImageGenerationModel(savedImageModel)
+      setTempImageGenerationModel(savedImageModel)
+    }
+    if (savedCodeModel) {
+      setCodeGenerationModel(savedCodeModel)
+      setTempCodeGenerationModel(savedCodeModel)
+    }
+  }, [])
+
+  // Save API keys to localStorage
+  const saveApiKeys = () => {
+    // Allow clearing Gemini API key (set to empty string)
+    setGeminiApiKey(tempGeminiApiKey.trim())
+    if (tempGeminiApiKey.trim()) {
+      localStorage.setItem('gemini_api_key', tempGeminiApiKey.trim())
+    } else {
+      localStorage.removeItem('gemini_api_key')
+    }
+    
+    // ElevenLabs is optional
+    setElevenlabsApiKey(tempElevenlabsApiKey.trim())
+    if (tempElevenlabsApiKey.trim()) {
+      localStorage.setItem('elevenlabs_api_key', tempElevenlabsApiKey.trim())
+    } else {
+      localStorage.removeItem('elevenlabs_api_key')
+    }
+    
+    setShowApiKeyModal(false)
+    setTempGeminiApiKey('')
+    setTempElevenlabsApiKey('')
+    setGeminiValidationResult(null)
+  }
+
+  const saveModelSettings = () => {
+    setImageGenerationModel(tempImageGenerationModel)
+    setCodeGenerationModel(tempCodeGenerationModel)
+    localStorage.setItem('imageGenerationModel', tempImageGenerationModel)
+    localStorage.setItem('codeGenerationModel', tempCodeGenerationModel)
+    setShowModelSettingsModal(false)
+  }
+
+  // Validate Gemini API key
+  const validateGeminiApiKey = async () => {
+    if (!tempGeminiApiKey.trim()) {
+      setGeminiValidationResult({valid: false, message: 'Please enter a Gemini API key'})
+      return
+    }
+    
+    setIsValidatingGemini(true)
+    setGeminiValidationResult(null)
+    
+    try {
+      const nexusApiUrl = process.env.NEXT_PUBLIC_NEXUS_API_URL || 'http://localhost:9000'
+      const response = await fetch(`${nexusApiUrl}/v1/chat/gemini`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': tempGeminiApiKey.trim()
+        },
+        body: JSON.stringify({
+          model: 'gemini-2.5-flash-lite',
+          messages: [
+            {
+              role: 'system',
+              content: 'Test'
+            },
+            {
+              role: 'user',
+              content: 'test'
+            }
+          ],
+          max_tokens: 10,
+          stream: false
+        })
+      })
+      
+      if (response.ok) {
+        setGeminiValidationResult({valid: true, message: 'API key is valid!'})
+      } else {
+        const errorData = await response.json().catch(() => ({detail: 'Invalid API key'}))
+        let errorMessage = 'Invalid API key'
+        
+        if (errorData.detail) {
+          // Handle different error response formats
+          if (typeof errorData.detail === 'string') {
+            errorMessage = errorData.detail
+          } else if (Array.isArray(errorData.detail)) {
+            errorMessage = errorData.detail.map((err: any) => err.msg || err.message || String(err)).join(', ')
+          } else if (typeof errorData.detail === 'object') {
+            errorMessage = errorData.detail.msg || errorData.detail.message || JSON.stringify(errorData.detail)
+          }
+        } else if (errorData.message) {
+          errorMessage = errorData.message
+        }
+        
+        setGeminiValidationResult({valid: false, message: errorMessage})
+      }
+    } catch (error) {
+      setGeminiValidationResult({valid: false, message: 'Failed to validate API key. Check your connection.'})
+    } finally {
+      setIsValidatingGemini(false)
+    }
+  }
+  
+  // Handle API key modal submit
+  const handleApiKeySubmit = () => {
+    // Allow saving even with empty API key (will use fallback)
+    saveApiKeys()
+  }
 
   const handleVoiceInput = async () => {
     if (isRecording) {
@@ -120,7 +264,7 @@ export default function FigmaAIApp() {
           const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
             method: 'POST',
             headers: {
-              'xi-api-key': process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY as string,
+              'xi-api-key': elevenlabsApiKey || process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY as string,
               // Don't set Content-Type header, let the browser set it with the boundary
             },
             body: formData
@@ -163,9 +307,22 @@ export default function FigmaAIApp() {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault()
       const delta = e.deltaY * -0.01
-      setZoom(prev => Math.min(200, Math.max(25, prev + delta * 25)))
+      setZoom(prev => Math.round(Math.min(200, Math.max(25, prev + delta * 25))))
     }
   }, [])
+
+  useEffect(() => {
+    // Track natural size when image changes
+    if (!importedImage) {
+      setImageNaturalSize(null)
+      return
+    }
+    const img = new Image()
+    img.onload = () => {
+      setImageNaturalSize({ width: img.width, height: img.height })
+    }
+    img.src = importedImage
+  }, [importedImage])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -182,6 +339,7 @@ export default function FigmaAIApp() {
   // Global mouse events for smooth dragging
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
+      const scale = Math.max(0.01, zoom / 100)
       if (isDragging && startDragPosition && canvasRef.current) {
         e.preventDefault()
         
@@ -219,11 +377,12 @@ export default function FigmaAIApp() {
   // Global mouse events for selection box manipulation
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
+      const scale = Math.max(0.01, zoom / 100)
       if (isMovingBox && moveStart && selectionBox) {
         e.preventDefault()
         
-        const deltaX = e.clientX - moveStart.x
-        const deltaY = e.clientY - moveStart.y
+        const deltaX = (e.clientX - moveStart.x) / scale
+        const deltaY = (e.clientY - moveStart.y) / scale
         
         setSelectionBox(prev => {
           if (!prev) return prev
@@ -238,8 +397,8 @@ export default function FigmaAIApp() {
       } else if (isResizing && resizeStart && selectionBox && selectedAspectRatio) {
         e.preventDefault()
         
-        const deltaX = e.clientX - resizeStart.x
-        const deltaY = e.clientY - resizeStart.y
+        const deltaX = (e.clientX - resizeStart.x) / scale
+        const deltaY = (e.clientY - resizeStart.y) / scale
         
         // Calculate new dimensions based on aspect ratio
         let newWidth = selectionBox.width
@@ -306,6 +465,8 @@ export default function FigmaAIApp() {
       document.removeEventListener('mouseup', handleGlobalMouseUp)
     }
   }, [isMovingBox, moveStart, isResizing, resizeStart, resizeHandle, selectionBox, selectedAspectRatio])
+  
+  // Note: comprehensive canvas mouse handlers are defined below (drag/select/pan)
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -375,7 +536,7 @@ export default function FigmaAIApp() {
           const optimalScale = Math.min(scaleX, scaleY, 1) // Don't zoom in, only zoom out
           
           const optimalZoom = Math.max(25, Math.min(100, optimalScale * 100)) // Keep within zoom bounds
-          setZoom(optimalZoom)
+          setZoom(Math.round(optimalZoom))
         }
         
         setImportedImage(newImage)
@@ -439,43 +600,33 @@ export default function FigmaAIApp() {
   }, [])
 
   const handleCanvasMouseDown = useCallback((event: React.MouseEvent) => {
-    // Only handle events if clicking on canvas background
-    if (event.target === event.currentTarget) {
-      if (event.button === 0) {
-        // Left click - start dragging and deselect elements
-        event.preventDefault()
-        event.stopPropagation()
-        
-        const canvas = canvasRef.current
-        if (canvas) {
-          setIsDragging(true)
-          setStartDragPosition({ x: event.clientX, y: event.clientY })
-          setScrollPosition({
-            x: canvas.scrollLeft,
-            y: canvas.scrollTop
-          })
-          
-          // Change cursor style
-          canvas.style.cursor = 'grabbing'
-        }
-      } else if (event.button === 2 && (event.ctrlKey || event.metaKey)) {
-        // Control + Right click - start selection
-        event.preventDefault()
-        event.stopPropagation()
-        
-        const canvas = canvasRef.current
-        if (canvas) {
-          const rect = canvas.getBoundingClientRect()
-          const x = event.clientX - rect.left + canvas.scrollLeft
-          const y = event.clientY - rect.top + canvas.scrollTop
-          
-          setIsSelecting(true)
-          setSelectionStart({ x, y })
-          setSelectionBox({ x, y, width: 0, height: 0 })
-        }
-      }
+    const canvas = canvasRef.current
+    const leftClick = event.button === 0
+    const backgroundClick = event.target === event.currentTarget
+    
+    // Pan the canvas if Space is held (anywhere) or clicking background
+    if (leftClick && (isSpacePressed || backgroundClick) && canvas) {
+      event.preventDefault()
+      event.stopPropagation()
+      setIsDragging(true)
+      setStartDragPosition({ x: event.clientX, y: event.clientY })
+      setScrollPosition({ x: canvas.scrollLeft, y: canvas.scrollTop })
+      canvas.style.cursor = 'grabbing'
+      return
     }
-  }, [])
+
+    // Ctrl/Meta + Right click to start a free selection
+    if (event.button === 2 && (event.ctrlKey || event.metaKey) && canvas) {
+      event.preventDefault()
+      event.stopPropagation()
+      const rect = canvas.getBoundingClientRect()
+      const x = event.clientX - rect.left + canvas.scrollLeft
+      const y = event.clientY - rect.top + canvas.scrollTop
+      setIsSelecting(true)
+      setSelectionStart({ x, y })
+      setSelectionBox({ x, y, width: 0, height: 0 })
+    }
+  }, [isSpacePressed])
 
   const handleCanvasMouseMove = useCallback((event: React.MouseEvent) => {
     if (isDragging && startDragPosition && canvasRef.current) {
@@ -641,7 +792,7 @@ export default function FigmaAIApp() {
         const optimalScale = Math.min(scaleX, scaleY, 1) // Don't zoom in, only zoom out
         
         const optimalZoom = Math.max(25, Math.min(100, optimalScale * 100)) // Keep within zoom bounds
-        setZoom(optimalZoom)
+        setZoom(Math.round(optimalZoom))
       }
       
       // Add to history
@@ -704,18 +855,22 @@ export default function FigmaAIApp() {
       const formData = new FormData()
       formData.append('request_id', requestId)
       formData.append('image', blob, 'image.png')
+      formData.append('model', codeGenerationModel)
 
+      const pixieApiUrl = getPixieApiUrl()
+      const endpoint = `${pixieApiUrl}/v1/images/to-html`
+      
       console.log('🔄 Making image-to-HTML API call:', {
-        endpoint: 'https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/to-html',
+        endpoint: endpoint,
         requestId: requestId,
         imageSize: blob.size
       })
 
       // Make API call
-      const response = await fetch('https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/to-html', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          'X-API-Key': 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
+          'X-API-Key': geminiApiKey || 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
         },
         body: formData
       })
@@ -806,11 +961,22 @@ export default function FigmaAIApp() {
       formData.append('prompt', selectionPrompt.trim())
       formData.append('image', blob, 'selection.png')
       formData.append('aspect_ratio', `${selectedAspectRatio.ratio}:1`)
+      formData.append('model', imageGenerationModel)
       formData.append('request_id', requestId)
       formData.append('numberOfImages', '1')
 
+      // Add reference image if it exists
+      if (referenceImage) {
+        const referenceImageResponse = await fetch(referenceImage)
+        const referenceImageBlob = await referenceImageResponse.blob()
+        formData.append('reference_image', referenceImageBlob, 'reference.png')
+      }
+
+      const pixieApiUrl = getPixieApiUrl()
+      const endpoint = `${pixieApiUrl}/v1/images/apply`
+      
       console.log('🔄 Making apply transformation API call:', {
-        endpoint: 'https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/apply',
+        endpoint: endpoint,
         requestId: requestId,
         prompt: selectionPrompt.trim(),
         aspectRatio: `${selectedAspectRatio.ratio}:1`,
@@ -818,10 +984,10 @@ export default function FigmaAIApp() {
       })
 
       // Make API call
-      const response = await fetch('https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/apply', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          'X-API-Key': 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
+          'X-API-Key': geminiApiKey || 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
         },
         body: formData
       })
@@ -834,7 +1000,19 @@ export default function FigmaAIApp() {
           statusText: response.statusText,
           requestId: requestId
         })
-        throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+        
+        // Try to get detailed error message from response
+        let errorMessage = `API request failed: ${response.status} ${response.statusText}`
+        try {
+          const errorData = await response.json()
+          if (errorData.detail) {
+            errorMessage = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail)
+          }
+        } catch (e) {
+          // If we can't parse the error response, use the default message
+        }
+        
+        throw new Error(errorMessage)
       }
 
       const result = await response.blob()
@@ -897,8 +1075,9 @@ export default function FigmaAIApp() {
       // Clean up blob URL
       URL.revokeObjectURL(resultImageUrl)
 
-      // Keep aspect ratio and box, just clear prompt
+      // Keep aspect ratio and box, just clear prompt and reference image
       setSelectionPrompt("")
+      setReferenceImage(null)
 
     } catch (err) {
       console.error("Selection processing error:", err)
@@ -913,10 +1092,37 @@ export default function FigmaAIApp() {
     }
   }
 
+  const handleExportImage = () => {
+    if (!importedImage) {
+      setError('No image to export')
+      setTimeout(() => setError(null), 5000)
+      return
+    }
+
+    const link = document.createElement('a')
+    link.href = importedImage
+    link.download = `pixie-export-${Date.now()}.png`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   const handleViewPrompt = async () => {
-    if (!importedImage || currentHistoryIndex < 0) {
+    // If the panel is already open, just close it and return.
+    if (showPromptPanel) {
+      setShowPromptPanel(false)
+      return
+    }
+
+    if (!importedImage || currentHistoryIndex <= 0) {
       setError('No image available to view prompt for')
       setTimeout(() => setError(null), 5000)
+      return
+    }
+
+    // If we have cached data, show the panel.
+    if (promptCache[currentHistoryIndex]) {
+      setShowPromptPanel(true)
       return
     }
 
@@ -941,10 +1147,14 @@ export default function FigmaAIApp() {
       formData.append('image', blob, 'image.png')
       if (currentPrompt) {
         formData.append('prompt', currentPrompt)
+        formData.append('model', imageGenerationModel)
       }
       
+      const pixieApiUrl = getPixieApiUrl()
+      const endpoint = `${pixieApiUrl}/v1/images/prompt`
+      
       console.log('🔄 Making copy prompt API call:', {
-        endpoint: 'https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/prompt',
+        endpoint: endpoint,
         requestId: requestId,
         originalRequestId: originalRequestId,
         isOriginalRequestId: !!originalRequestId,
@@ -953,17 +1163,31 @@ export default function FigmaAIApp() {
         currentHistoryIndex: currentHistoryIndex
       })
       
-      const response = await fetch('https://awake-lauraine-vinaykudari-b9455624.koyeb.app/v1/images/prompt', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          'X-API-Key': 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
+          'X-API-Key': geminiApiKey || 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
         },
         body: formData
       })
 
       console.log('📥 API Response status:', response.status, response.statusText)
       
-      if (!response.ok) {
+      if (response.ok) {
+        const data = await response.json()
+        const promptData = {
+          instructions: data.instructions || 'No instructions available',
+          assets: data.assets || []
+        }
+        
+        // Cache the result
+        setPromptCache(prev => ({
+          ...prev,
+          [currentHistoryIndex]: promptData
+        }))
+        
+        setShowPromptPanel(true)
+      } else {
         console.error('❌ API request failed:', {
           status: response.status,
           statusText: response.statusText,
@@ -971,30 +1195,6 @@ export default function FigmaAIApp() {
         })
         throw new Error(`API request failed: ${response.status} ${response.statusText}`)
       }
-
-      const promptData = await response.json()
-      console.log('✅ API Response data:', promptData)
-      
-      // Create the complete prompt structure to copy to clipboard
-      const promptStructure = {
-        instructions: promptData.instructions || '',
-        model: promptData.model || 'gemini-2.5-flash-image-preview',
-        assets: promptData.assets || []
-      }
-
-      // Show popup with API response data
-      setPromptPopupData({
-        instructions: promptData.instructions || '',
-        assets: promptData.assets || []
-      })
-      setShowPromptPopup(true)
-      
-      // Show success message
-      setShowSuccess(true)
-      setTimeout(() => {
-        setShowSuccess(false)
-      }, 3000)
-
     } catch (err) {
       console.error('❌ View prompt error:', {
         error: err,
@@ -1019,710 +1219,382 @@ export default function FigmaAIApp() {
   return (
     <div className="h-screen flex flex-col bg-[#f8f9fa] text-foreground">
       {/* Top Navigation Bar */}
-      <div className="h-20 border-b border-[#e2e8f0] flex items-center justify-between px-4 bg-white">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="h-16 w-32 overflow-hidden">
-              <img 
-                src="/pixie logo.png" 
-                alt="Pixie" 
-                className="h-[120%] w-[120%] object-cover object-center transform -translate-x-[11.5%] -translate-y-[11.5%]" 
-              />
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          
-          <Button variant="ghost" size="sm" className="h-8 px-3 bg-gray-100 hover:bg-gray-200 rounded-md">Share</Button>
-        </div>
-      </div>
+      <TopBar
+        geminiApiKey={geminiApiKey}
+        elevenlabsApiKey={elevenlabsApiKey}
+        setTempGeminiApiKey={setTempGeminiApiKey}
+        setTempElevenlabsApiKey={setTempElevenlabsApiKey}
+        setShowApiKeyModal={setShowApiKeyModal}
+        setShowModelSettingsModal={setShowModelSettingsModal}
+      />
 
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar */}
-        <div className={`${leftSidebarOpen ? 'w-64' : 'w-8'} bg-white border-r border-[#e2e8f0] flex flex-col relative transition-all duration-300`}>
-          {/* History Panel */}
-          <div className={`p-4 min-w-[256px] ${leftSidebarOpen ? '' : 'invisible'}`}>
-            <div className="flex items-center gap-2 mb-3 text-sm font-medium">
-              <History className="w-4 h-4 text-gray-600" />
-              <span>History</span>
-            </div>
-            <div className="space-y-2">
-              {imageHistory.length === 0 ? (
-                <div className="text-sm text-gray-500">No transformations yet</div>
-              ) : (
-                imageHistory.map((_, index, array) => {
-                  const historyIndex = index;
-                  const isOriginal = historyIndex === 0;
-                  const isCurrent = historyIndex === currentHistoryIndex;
-                  // promptHistory is added with newest first, so we need to reverse the index
-                  // index 1 (first transformation) maps to promptHistory[promptHistory.length - 1]
-                  // index 2 (second transformation) maps to promptHistory[promptHistory.length - 2], etc.
-                  const prompt = index > 0 ? promptHistory[promptHistory.length - index] : null;
-                  
-                  return (
-                    <div 
-                      key={index} 
-                      className={`text-sm p-2 rounded transition-colors cursor-pointer hover:bg-gray-100 ${
-                        isCurrent ? 'bg-yellow-50 border border-yellow-200 hover:bg-yellow-100' : 'bg-gray-50'
-                      }`}
-                      onClick={() => {
-                        setCurrentHistoryIndex(historyIndex);
-                        setImportedImage(imageHistory[historyIndex]);
-                      }}
-                    >
-                      <div className="text-gray-900">
-                        {isOriginal ? (
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">Original Image</span>
-                            
-                          </div>
-                        ) : prompt ? (
-                          prompt.prompt
-                        ) : (
-                          "Image Update"
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {prompt ? new Date(prompt.timestamp).toLocaleTimeString() : ""}
-                      </div>
-                    </div>
-                  );
-                }).reverse()
-              )}
-            </div>
-          </div>
-          
-          {/* Toggle Button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="absolute right-0 top-1/2 transform -translate-y-1/2 w-8 h-8 p-0 hover:bg-gray-100 rounded-full z-10 flex items-center justify-center"
-            onClick={() => setLeftSidebarOpen(prev => !prev)}
-          >
-            <ChevronDown className={`w-4 h-4 transform transition-transform ${leftSidebarOpen ? 'rotate-90' : '-rotate-90'} text-gray-600`} />
-          </Button>
-        </div>
+        <LeftSidebar
+          leftSidebarOpen={leftSidebarOpen}
+          setLeftSidebarOpen={setLeftSidebarOpen}
+          imageHistory={imageHistory}
+          currentHistoryIndex={currentHistoryIndex}
+          setCurrentHistoryIndex={setCurrentHistoryIndex}
+          setImportedImage={(img) => setImportedImage(img)}
+          promptHistory={promptHistory}
+        />
 
         {/* Main Canvas Area */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           {/* Canvas Header */}
-          <div className="h-12 bg-white border-b border-[#e2e8f0] flex items-center justify-between px-4">
-            <div className="flex items-center gap-6">
-              {/* Zoom Controls */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => setZoom(prev => Math.max(25, prev - 25))}
-                  disabled={zoom <= 25}
-                >
-                  <ZoomOut className="w-4 h-4" />
-                </Button>
-                <div className="text-sm text-gray-500 min-w-[60px] text-center">{zoom}%</div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => setZoom(prev => Math.min(200, prev + 25))}
-                  disabled={zoom >= 200}
-                >
-                  <ZoomIn className="w-4 h-4" />
-                </Button>
+          <CanvasHeader
+            zoom={zoom}
+            setZoom={setZoom}
+            currentHistoryIndex={currentHistoryIndex}
+            imageHistory={imageHistory}
+            setCurrentHistoryIndex={setCurrentHistoryIndex}
+            setImportedImage={(img) => setImportedImage(img)}
+            isGeneratingCode={isGeneratingCode}
+            importedImage={importedImage}
+            handleGenerateCode={handleGenerateCode}
+            isLoadingPrompt={isLoadingPrompt}
+            handleViewPrompt={handleViewPrompt}
+            hasPrompt={!!promptCache[currentHistoryIndex]}
+            handleExportImage={handleExportImage}
+          />
+
+          {/* Prompt Panel (dropdown) */}
+          {showPromptPanel && promptCache[currentHistoryIndex] && (
+            <div className="absolute top-[50px] right-[270px] z-20 w-[450px] bg-white border border-gray-200 rounded-md shadow-lg">
+              <div className="flex items-center justify-between p-3 border-b border-gray-200">
+                <h3 className="text-sm font-medium text-gray-900">Developer Instructions</h3>
+                <div className="flex items-center gap-2">
+                  {copySuccess && (
+                    <span className="text-xs text-green-600 font-medium">{copySuccess}</span>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const promptText = promptCache[currentHistoryIndex]?.instructions || 'No instructions available'
+                        await navigator.clipboard.writeText(promptText)
+                        setCopySuccess('Copied!')
+                        setTimeout(() => setCopySuccess(null), 2000)
+                      } catch {
+                        setCopySuccess('Copy failed')
+                        setTimeout(() => setCopySuccess(null), 2000)
+                      }
+                    }}
+                  >
+                    <Copy className="w-3 h-3 mr-2" />
+                    Copy
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowPromptPanel(false)}
+                    className="h-7 w-7"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
-
-              <Separator orientation="vertical" className="h-6" />
-
-              {/* Undo/Redo Controls */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => {
-                    if (currentHistoryIndex > 0) {
-                      setCurrentHistoryIndex(prev => prev - 1)
-                      setImportedImage(imageHistory[currentHistoryIndex - 1])
-                    }
-                  }}
-                  disabled={currentHistoryIndex <= 0}
-                  title="Undo"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M9 14L4 9L9 4" />
-                    <path d="M4 9H15C18.866 9 22 12.134 22 16C22 19.866 18.866 23 15 23H8" />
-                  </svg>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => {
-                    if (currentHistoryIndex < imageHistory.length - 1) {
-                      setCurrentHistoryIndex(prev => prev + 1)
-                      setImportedImage(imageHistory[currentHistoryIndex + 1])
-                    }
-                  }}
-                  disabled={currentHistoryIndex >= imageHistory.length - 1}
-                  title="Redo"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M15 14L20 9L15 4" />
-                    <path d="M20 9H9C5.134 9 2 12.134 2 16C2 19.866 5.134 23 9 23H16" />
-                  </svg>
-                </Button>
+              <div className="p-3">
+                <div className="max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm text-gray-800 bg-gray-50 p-3 rounded border border-gray-200">
+                  {promptCache[currentHistoryIndex]?.instructions || 'No instructions available'}
+                </div>
               </div>
-
-              <Separator orientation="vertical" className="h-6" />
-
-              {/* View Controls */}
-              <div className="flex items-center gap-2">
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="h-8 bg-green-50 text-green-600 hover:bg-green-100 border-b-2 border-green-500"
-                >
-                  Design
-                </Button>
-              </div>
-              <Button 
-                variant="ghost" 
-                size="sm"
-                className="h-8 px-3 bg-green-50 text-green-600 hover:bg-green-100"
-                onClick={handleGenerateCode}
-                disabled={isGeneratingCode || !importedImage}
-              >
-                {isGeneratingCode ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Code className="w-4 h-4 mr-2" />
-                    Generate Code
-                  </>
-                )}
-              </Button>
-              <Button 
-                variant="ghost" 
-                className="text-sm px-3 h-8 bg-green-50 text-green-600 hover:bg-green-100"
-                onClick={handleViewPrompt}
-                disabled={isLoadingPrompt || !importedImage || currentHistoryIndex < 0}
-              >
-                {isLoadingPrompt ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4 mr-2" />
-                    View Prompt
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {/* Error Alert */}
-          {error && (
-            <div className="absolute top-4 right-4 z-50">
-              <Alert variant="destructive" className="bg-red-50 border-red-200">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
             </div>
           )}
 
           {/* Canvas */}
-          <div 
-            ref={canvasRef} 
-            className={`flex-1 overflow-auto bg-white relative select-none scroll-smooth`}
+          <div
+            ref={canvasRef}
+            className="flex-1 overflow-auto bg-[#f1f5f9]"
+            style={{
+              backgroundImage:
+                'linear-gradient(to right, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.04) 1px, transparent 1px)',
+              backgroundSize: '20px 20px',
+              backgroundPosition: '0 0',
+            }}
             onMouseDown={handleCanvasMouseDown}
             onMouseMove={handleCanvasMouseMove}
             onMouseUp={handleCanvasMouseUp}
             onMouseLeave={handleCanvasMouseLeave}
             onScroll={handleCanvasScroll}
-            onContextMenu={(e) => e.preventDefault()}
-            style={{
-              cursor: isControlPressed ? 'crosshair' : 'default',
-              backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.2) 1px, transparent 1px)',
-              backgroundSize: '20px 20px'
-            }}>
+          >
             {importedImage ? (
-              <div 
-                className="relative inline-block" 
-                style={{ 
-                  transform: `scale(${zoom / 100})`, 
-                  transformOrigin: "top left",
-                  position: 'absolute',
-                  left: imagePosition.x,
-                  top: imagePosition.y,
-                  cursor: isSelecting ? 'crosshair' : isControlPressed ? 'crosshair' : 'default'
-                }}
-                onContextMenu={(e) => e.preventDefault()}
-              >
-                <img src={importedImage} alt="Imported website" className="max-w-none shadow-lg select-none" />
-                {/* Selection Box */}
-                {selectionBox && selectedAspectRatio && (
-                  <div
-                    className="absolute border-2 border-blue-500 bg-blue-500/20"
-                    style={{
-                      left: selectionBox.x,
-                      top: selectionBox.y,
-                      width: selectionBox.width,
-                      height: selectionBox.height,
-                      cursor: isResizing ? 'grabbing' : isMovingBox ? 'grabbing' : 'grab'
-                    }}
-                    onMouseDown={(e) => {
-                      // Handle left click for dragging, ignore if already resizing
-                      if (e.button === 0 && !isResizing) {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        setIsMovingBox(true)
-                        setMoveStart({ x: e.clientX, y: e.clientY })
-                      }
-                    }}
-                  >
-                    {/* Resize Handles */}
+              <div className="p-8">
+                <div
+                  ref={imageWrapperRef}
+                  className="relative shadow-sm border rounded select-none"
+                  style={{
+                    width: imageNaturalSize?.width || undefined,
+                    height: imageNaturalSize?.height || undefined,
+                    transform: `scale(${Math.max(0.01, zoom / 100)})`,
+                    transformOrigin: 'top left',
+                  }}
+                >
+                  <img
+                    src={importedImage}
+                    alt="Imported"
+                    draggable={false}
+                    className="block pointer-events-none"
+                    style={{ width: imageNaturalSize?.width, height: imageNaturalSize?.height }}
+                  />
+
+                  {selectionBox && selectedAspectRatio && (
                     <div
-                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-nw-resize -left-1.5 -top-1.5"
-                      onMouseDown={(e) => {
-                        e.stopPropagation()
-                        setIsResizing(true)
-                        setResizeHandle('top-left')
-                        setResizeStart({ x: e.clientX, y: e.clientY })
+                      className="absolute border-2 border-blue-500/80 bg-blue-500/10"
+                      style={{
+                        left: selectionBox.x,
+                        top: selectionBox.y,
+                        width: selectionBox.width,
+                        height: selectionBox.height,
                       }}
-                    />
-                    <div
-                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-ne-resize -right-1.5 -top-1.5"
                       onMouseDown={(e) => {
-                        e.stopPropagation()
-                        setIsResizing(true)
-                        setResizeHandle('top-right')
-                        setResizeStart({ x: e.clientX, y: e.clientY })
+                        if (e.button === 0 && !isResizing) {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setIsMovingBox(true)
+                          setMoveStart({ x: e.clientX, y: e.clientY })
+                        }
                       }}
-                    />
-                    <div
-                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-sw-resize -left-1.5 -bottom-1.5"
-                      onMouseDown={(e) => {
-                        e.stopPropagation()
-                        setIsResizing(true)
-                        setResizeHandle('bottom-left')
-                        setResizeStart({ x: e.clientX, y: e.clientY })
-                      }}
-                    />
-                    <div
-                      className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-se-resize -right-1.5 -bottom-1.5"
-                      onMouseDown={(e) => {
-                        e.stopPropagation()
-                        setIsResizing(true)
-                        setResizeHandle('bottom-right')
-                        setResizeStart({ x: e.clientX, y: e.clientY })
-                      }}
-                    />
-                  </div>
-                )}
+                    >
+                      {/* Resize Handles */}
+                      <div
+                        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-nw-resize -left-1.5 -top-1.5"
+                        onMouseDown={(e) => {
+                          e.stopPropagation()
+                          setIsResizing(true)
+                          setResizeHandle('top-left')
+                          setResizeStart({ x: e.clientX, y: e.clientY })
+                        }}
+                      />
+                      <div
+                        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-ne-resize -right-1.5 -top-1.5"
+                        onMouseDown={(e) => {
+                          e.stopPropagation()
+                          setIsResizing(true)
+                          setResizeHandle('top-right')
+                          setResizeStart({ x: e.clientX, y: e.clientY })
+                        }}
+                      />
+                      <div
+                        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-sw-resize -left-1.5 -bottom-1.5"
+                        onMouseDown={(e) => {
+                          e.stopPropagation()
+                          setIsResizing(true)
+                          setResizeHandle('bottom-left')
+                          setResizeStart({ x: e.clientX, y: e.clientY })
+                        }}
+                      />
+                      <div
+                        className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-se-resize -right-1.5 -bottom-1.5"
+                        onMouseDown={(e) => {
+                          e.stopPropagation()
+                          setIsResizing(true)
+                          setResizeHandle('bottom-right')
+                          setResizeStart({ x: e.clientX, y: e.clientY })
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center text-gray-600">
+              <div className="h-full w-full flex items-center justify-center text-gray-600">
+                <div className="text-center">
                   <Upload className="w-12 h-12 mx-auto mb-4" />
                   <p className="text-lg mb-2 font-medium">Import a website to get started</p>
-                  <p className="text-sm mb-6">Enter a URL below to screenshot and analyze</p>
+                  <p className="text-sm">Enter a URL below to screenshot and analyze</p>
                 </div>
               </div>
             )}
           </div>
 
           {/* Bottom Input Bar */}
-          <div className="h-16 bg-white border-t border-gray-200 flex items-center justify-center gap-4 px-8">
-            <div className="flex items-center gap-3">
-              <Input
-                placeholder="Add the link to your website"
-                value={websiteUrl}
-                onChange={(e) => setWebsiteUrl(e.target.value)}
-                className="w-64 bg-white border-gray-200 text-gray-900 placeholder-gray-500"
-              />
-              <Button 
-                onClick={handleImportWebsite} 
-                disabled={isImporting}
-                className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 hover:-translate-y-0.5 transition-transform"
-              >
-                {isImporting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Importing...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4 mr-2" />
-                    Import Website
-                  </>
-                )}
-              </Button>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <Button 
-                onClick={handleFileUpload} 
-                disabled={isUploading}
-                className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 relative group hover:-translate-y-0.5 transition-transform"
-                title="Upload image from your computer (JPEG, PNG, GIF, WebP up to 5MB)"
-              >
-                {isUploading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Uploading...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4 mr-2" />
-                    Upload Image
-                  </>
-                )}
-                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                  Upload image from your computer<br />
-                  Supports: JPEG, PNG, GIF, WebP (max 5MB)
-                </div>
-              </Button>
-            </div>
-          </div>
-
+          <BottomBar
+            websiteUrl={websiteUrl}
+            setWebsiteUrl={setWebsiteUrl}
+            handleImportWebsite={handleImportWebsite}
+            isImporting={isImporting}
+            handleFileUpload={handleFileUpload}
+            isUploading={isUploading}
+          />
         </div>
 
         {/* Right Properties Panel */}
-        <div className={`${rightSidebarOpen ? 'w-96' : 'w-8'} bg-white border-l border-[#e2e8f0] flex flex-col relative transition-all duration-300`}>
-          {/* Toggle Button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="absolute -left-4 top-1/2 transform -translate-y-1/2 w-8 h-8 p-0 hover:bg-gray-100 rounded-full z-10 flex items-center justify-center"
-            onClick={() => setRightSidebarOpen(prev => !prev)}
-          >
-            <ChevronDown className={`w-4 h-4 transform transition-transform ${rightSidebarOpen ? '-rotate-90' : 'rotate-90'} text-gray-600`} />
-          </Button>
-
-          <div className={`min-w-[384px] ${rightSidebarOpen ? '' : 'invisible'}`}>
-            <div className="p-4 border-b border-[#e2e8f0] flex items-center justify-between">
-              <h3 className="text-sm font-medium text-gray-700">Properties</h3>
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-100">
-                <Plus className="w-4 h-4 text-gray-600" />
-              </Button>
-            </div>
-
-            <div className="flex-1 p-4">
-              <div className="space-y-4">
-                <div className="text-sm font-medium text-gray-700 mb-2">Aspect Ratios</div>
-                <div className="space-y-2">
-                  {ASPECT_RATIOS.map((ratio) => (
-                    <Button
-                      key={ratio.id}
-                      variant={selectedAspectRatio?.id === ratio.id ? "default" : "outline"}
-                      className="w-full justify-start text-left"
-                      onClick={() => {
-                        if (selectedAspectRatio?.id === ratio.id) {
-                          // If the same ratio is clicked again, deselect it
-                          setSelectionBox(null)
-                          setSelectedAspectRatio(null)
-                          // Also clear any resize/move states
-                          setIsResizing(false)
-                          setIsMovingBox(false)
-                          setResizeHandle(null)
-                          setMoveStart(null)
-                          setResizeStart(null)
-                        } else {
-                          // Select the new ratio
-                          setSelectedAspectRatio(ratio)
-                          // Create initial selection box in the center of the image
-                          if (importedImage && canvasRef.current) {
-                            const canvas = canvasRef.current
-                            const rect = canvas.getBoundingClientRect()
-                            const centerX = rect.width / 2
-                            const centerY = rect.height / 2
-                            const initialWidth = 200 // Base width
-                            const height = initialWidth / ratio.ratio
-                            setSelectionBox({
-                              x: centerX - initialWidth / 2,
-                              y: centerY - height / 2,
-                              width: initialWidth,
-                              height: height
-                            })
-                          }
-                        }
-                      }}
-                    >
-                      {ratio.name}
-                    </Button>
-                  ))}
-                </div>
-
-                {/* Selection Prompt Input */}
-                {selectedAspectRatio && (
-                  <div className="border-t border-gray-200 pt-4">
-                    <div className="text-sm font-medium text-gray-700 mb-2">Describe the change</div>
-                    <div className="flex gap-2 mb-3">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className={`shrink-0 transition-colors ${isRecording ? 'bg-red-100 border-red-500 text-red-500 hover:bg-red-200' : ''}`}
-                        title={isRecording ? 'Stop recording' : 'Use voice input'}
-                        onClick={handleVoiceInput}
-                      >
-                        <Mic className={`w-4 h-4 ${isRecording ? 'animate-pulse' : ''}`} />
-                      </Button>
-                      <Input
-                        placeholder="e.g. change the text from hello to hey there!"
-                        value={selectionPrompt}
-                        onChange={(e) => setSelectionPrompt(e.target.value)}
-                        className="w-full"
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && selectionPrompt.trim()) {
-                            e.preventDefault()
-                            handleSelectionSubmit()
-                          }
-                        }}
-                      />
-                    </div>
-                    <Button
-                      onClick={handleSelectionSubmit}
-                      disabled={!selectionPrompt.trim() || isProcessingSelection || !selectionBox}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      {isProcessingSelection ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Processing...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4 mr-2" />
-                          Apply Changes
-                        </>
-                      )}
-                    </Button>
-                    <div className="text-xs mt-2">
-                      {showSuccess ? (
-                        <div className="text-green-600 font-medium">Completed! 🍌</div>
-                      ) : selectionBox ? (
-                        <div className="text-gray-500">
-                          Press <kbd className="bg-gray-200 px-1 py-0.5 rounded">Enter</kbd> to apply
-                        </div>
-                      ) : (
-                        <div className="text-gray-500">
-                          Create a selection on the image to enable
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                
-              </div>
-            </div>
-          </div>
-        </div>
+        <RightPanel
+          rightSidebarOpen={rightSidebarOpen}
+          setRightSidebarOpen={setRightSidebarOpen}
+          zoom={zoom}
+          aspectRatios={ASPECT_RATIOS}
+          selectedAspectRatio={selectedAspectRatio}
+          setSelectedAspectRatio={setSelectedAspectRatio}
+          importedImage={importedImage}
+          canvasRef={canvasRef}
+          setSelectionBox={setSelectionBox}
+          isRecording={isRecording}
+          elevenlabsApiKey={elevenlabsApiKey}
+          handleVoiceInput={handleVoiceInput}
+          selectionPrompt={selectionPrompt}
+          setSelectionPrompt={setSelectionPrompt}
+          isProcessingSelection={isProcessingSelection}
+          handleSelectionSubmit={handleSelectionSubmit}
+          imageNaturalSize={imageNaturalSize}
+          referenceImage={referenceImage}
+          setReferenceImage={setReferenceImage}
+          error={error}
+          setError={setError}
+        />
       </div>
 
-      {/* Code Generation Success Popup */}
-      {showCodePopup && codePopupData && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full shadow-2xl">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Code Generated Successfully! 🎉</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowCodePopup(false)}
-                className="h-8 w-8 p-0 hover:bg-gray-100"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-            
-            {/* Content */}
-            <div className="p-6">
-              <p className="text-gray-600 mb-4">Your HTML code has been generated and is ready to view!</p>
-              
-              <div className="space-y-3">
-                <Button
-                  onClick={() => {
-                    window.open(codePopupData.htmlPath, '_blank')
-                    setShowCodePopup(false)
-                  }}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white"
-                >
-                  <Code className="w-4 h-4 mr-2" />
-                  View Generated HTML
-                </Button>
-                
-                <div className="text-xs text-gray-500 break-all bg-gray-50 p-2 rounded">
-                  {codePopupData.htmlPath}
+
+      {/* Success Display */}
+      {showSuccess && (
+        <div className="fixed top-4 right-4 z-50 max-w-md">
+          <Alert className="bg-green-50 border-green-200 shadow-lg">
+            <Sparkles className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-green-800">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <strong className="font-medium">Success:</strong> Image transformation completed!
                 </div>
+                <button
+                  onClick={() => setShowSuccess(false)}
+                  className="flex-shrink-0 text-green-600 hover:text-green-800 transition-colors"
+                  aria-label="Dismiss success message"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
+{/* API Key Modal */}
+      {showApiKeyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4">
+            <div className="p-6">
+              <h2 className="text-xl font-semibold mb-4">Configure API Keys</h2>
+              <p className="text-gray-600 mb-4">
+                Configure your API keys for AI features. Gemini is required, ElevenLabs is optional for voice input.
+              </p>
+              
+              {/* Warning when no API key is set */}
+              {!tempGeminiApiKey.trim() && (
+                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-yellow-800">
+                      <strong>No API key set:</strong> The app will use the server's fallback API key. 
+                      If the free tier limit is exceeded, requests may fail. Consider adding your own API key for reliable access.
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Gemini API Key */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Gemini API Key (Required)
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    placeholder="Enter your Gemini API key..."
+                    value={tempGeminiApiKey}
+                    onChange={(e) => setTempGeminiApiKey(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={validateGeminiApiKey}
+                    disabled={isValidatingGemini || !tempGeminiApiKey.trim()}
+                    className="px-3"
+                  >
+                    {isValidatingGemini ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      'Validate'
+                    )}
+                  </Button>
+                </div>
+                {geminiValidationResult && (
+                  <div className={`mt-2 text-sm ${geminiValidationResult.valid ? 'text-green-600' : 'text-red-600'}`}>
+                    {geminiValidationResult.message}
+                  </div>
+                )}
+              </div>
+
+              {/* ElevenLabs API Key */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  ElevenLabs API Key (Optional - for voice input)
+                </label>
+                <Input
+                  type="password"
+                  placeholder="Enter your ElevenLabs API key (optional)..."
+                  value={tempElevenlabsApiKey}
+                  onChange={(e) => setTempElevenlabsApiKey(e.target.value)}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Leave empty to disable voice input feature
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setShowApiKeyModal(false)
+                    setTempGeminiApiKey('')
+                    setTempElevenlabsApiKey('')
+                    setGeminiValidationResult(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleApiKeySubmit}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Save API Keys
+                </Button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Prompt Popup Modal */}
-      {showPromptPopup && promptPopupData && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Prompt Instructions & Assets</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowPromptPopup(false)}
-                className="h-8 w-8 p-0 hover:bg-gray-100"
-              >
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-            
-            {/* Content */}
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
-              {/* Instructions Section */}
-              <div className="mb-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-3">Instructions</h3>
-                <div className="bg-gray-50 rounded-lg p-4 border">
-                  <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
-                    {promptPopupData.instructions || 'No instructions available'}
-                  </pre>
-                </div>
+      {/* Model Settings Modal */}
+      {showModelSettingsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4">
+            <div className="p-6">
+              <h2 className="text-xl font-semibold mb-4">Model Settings</h2>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Image Generation Model</label>
+                <Input
+                  type="text"
+                  value={tempImageGenerationModel}
+                  onChange={(e) => setTempImageGenerationModel(e.target.value)}
+                />
               </div>
-
-              {/* Assets Section */}
-              {promptPopupData.assets && promptPopupData.assets.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-3">Assets ({promptPopupData.assets.length})</h3>
-                  <div className="grid gap-4">
-                    {promptPopupData.assets.map((asset, index) => (
-                      <div key={index} className="border rounded-lg p-4 bg-gray-50">
-                        {/* Asset metadata */}
-                        <div className="mb-3">
-                          <div className="text-sm text-gray-600 mb-1">
-                            <strong>Type:</strong> {asset.type || 'Unknown'}
-                          </div>
-                          {asset.name && (
-                            <div className="text-sm text-gray-600 mb-1">
-                              <strong>Name:</strong> {asset.name}
-                            </div>
-                          )}
-                          {asset.size && (
-                            <div className="text-sm text-gray-600 mb-1">
-                              <strong>Size:</strong> {asset.size} bytes
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Asset preview */}
-                        {asset.data && (
-                          <div className="mt-3">
-                            <div className="text-sm font-medium text-gray-700 mb-2">Preview:</div>
-                            {(() => {
-                              // Try to detect if this is image data and render it
-                              try {
-                                // Check if asset.type exists and is an image type
-                                const isImageType = asset.type && (
-                                  asset.type.startsWith('image/') || 
-                                  asset.type.includes('png') || 
-                                  asset.type.includes('jpg') || 
-                                  asset.type.includes('jpeg') || 
-                                  asset.type.includes('gif') || 
-                                  asset.type.includes('webp')
-                                );
-
-                                // Check if the data looks like base64 or if we should treat it as bytes
-                                let imageSrc = '';
-                                
-                                if (typeof asset.data === 'string') {
-                                  // If it's a string, assume it's base64
-                                  const mimeType = asset.type || 'image/png';
-                                  imageSrc = `data:${mimeType};base64,${asset.data}`;
-                                } else if (asset.data instanceof ArrayBuffer || Array.isArray(asset.data)) {
-                                  // If it's bytes, convert to base64
-                                  const bytes = new Uint8Array(asset.data);
-                                  const base64 = btoa(String.fromCharCode(...bytes));
-                                  const mimeType = asset.type || 'image/png';
-                                  imageSrc = `data:${mimeType};base64,${base64}`;
-                                } else {
-                                  // Fallback: try to use it as is
-                                  const mimeType = asset.type || 'image/png';
-                                  imageSrc = `data:${mimeType};base64,${asset.data}`;
-                                }
-
-                                // Always try to render as image first (regardless of type detection)
-                                return (
-                                  <div>
-                                    <img 
-                                      src={imageSrc}
-                                      alt={asset.name || `Asset ${index + 1}`}
-                                      className="max-w-full h-auto rounded border shadow-sm"
-                                      style={{ maxHeight: '300px' }}
-                                      onError={(e) => {
-                                        // If image fails to load, show the raw data instead
-                                        const target = e.target as HTMLImageElement;
-                                        const parent = target.parentElement;
-                                        if (parent) {
-                                          parent.innerHTML = `
-                                            <div class="bg-white border rounded p-3">
-                                              <div class="text-xs text-gray-500 mb-2">Raw Data (first 200 characters):</div>
-                                              <code class="text-xs text-gray-600 break-all">
-                                                ${String(asset.data).substring(0, 200)}
-                                                ${String(asset.data).length > 200 ? '...' : ''}
-                                              </code>
-                                            </div>
-                                          `;
-                                        }
-                                      }}
-                                    />
-                                  </div>
-                                );
-                              } catch (error) {
-                                // Fallback to showing raw data
-                                return (
-                                  <div className="bg-white border rounded p-3">
-                                    <div className="text-xs text-gray-500 mb-2">Raw Data (first 200 characters):</div>
-                                    <code className="text-xs text-gray-600 break-all">
-                                      {String(asset.data).substring(0, 200)}
-                                      {String(asset.data).length > 200 && '...'}
-                                    </code>
-                                  </div>
-                                );
-                              }
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* No assets message */}
-              {(!promptPopupData.assets || promptPopupData.assets.length === 0) && (
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-3">Assets</h3>
-                  <div className="text-gray-500 text-center py-8 border-2 border-dashed border-gray-200 rounded-lg">
-                    No assets available
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="flex justify-end p-6 border-t border-gray-200 bg-gray-50">
-              <Button
-                onClick={() => setShowPromptPopup(false)}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                Close
-              </Button>
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Code Generation Model</label>
+                <Input
+                  type="text"
+                  value={tempCodeGenerationModel}
+                  onChange={(e) => setTempCodeGenerationModel(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setShowModelSettingsModal(false)}>Cancel</Button>
+                <Button onClick={saveModelSettings} className="bg-blue-600 hover:bg-blue-700 text-white">Save Settings</Button>
+              </div>
             </div>
           </div>
         </div>
