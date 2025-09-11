@@ -15,9 +15,10 @@ import CanvasHeader from "./components/CanvasHeader"
 import BottomBar from "./components/BottomBar"
 import RightPanel from "./components/RightPanel"
 
-// Helper function to get the Pixie API URL with fallback
-const getPixieApiUrl = () => {
-  return process.env.NEXT_PUBLIC_PIXIE_API_URL || 'http://0.0.0.0:9000'
+// Helper to get the unified API base URL
+// Prefer env var; otherwise default to the GCP Cloud Run URL
+const getApiBaseUrl = () => {
+  return process.env.NEXT_PUBLIC_NEXUS_API_URL || 'https://nexus-173203641979.us-central1.run.app'
 }
 
 interface AspectRatio {
@@ -169,8 +170,8 @@ export default function FigmaAIApp() {
     setGeminiValidationResult(null)
     
     try {
-      const nexusApiUrl = process.env.NEXT_PUBLIC_NEXUS_API_URL || 'http://localhost:9000'
-      const response = await fetch(`${nexusApiUrl}/v1/chat/gemini`, {
+      const baseUrl = getApiBaseUrl()
+      const response = await fetch(`${baseUrl}/v1/chat/gemini`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -857,8 +858,8 @@ export default function FigmaAIApp() {
       formData.append('image', blob, 'image.png')
       formData.append('model', codeGenerationModel)
 
-      const pixieApiUrl = getPixieApiUrl()
-      const endpoint = `${pixieApiUrl}/v1/images/to-html`
+      const apiBaseUrl = getApiBaseUrl()
+      const endpoint = `${apiBaseUrl}/v1/images/to-html`
       
       console.log('🔄 Making image-to-HTML API call:', {
         endpoint: endpoint,
@@ -972,8 +973,8 @@ export default function FigmaAIApp() {
         formData.append('reference_image', referenceImageBlob, 'reference.png')
       }
 
-      const pixieApiUrl = getPixieApiUrl()
-      const endpoint = `${pixieApiUrl}/v1/images/apply`
+      const apiBaseUrl = getApiBaseUrl()
+      const endpoint = `${apiBaseUrl}/v1/images/apply`
       
       console.log('🔄 Making apply transformation API call:', {
         endpoint: endpoint,
@@ -1150,8 +1151,8 @@ export default function FigmaAIApp() {
         formData.append('model', imageGenerationModel)
       }
       
-      const pixieApiUrl = getPixieApiUrl()
-      const endpoint = `${pixieApiUrl}/v1/images/prompt`
+      const apiBaseUrl = getApiBaseUrl()
+      const endpoint = `${apiBaseUrl}/v1/images/prompt`
       
       console.log('🔄 Making copy prompt API call:', {
         endpoint: endpoint,

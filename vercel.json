@@ -4,5 +4,14 @@
       "maxDuration": 30
     }
   },
-  "regions": ["iad1"]
+  "regions": ["iad1"],
+  "rewrites": [
+    {
+      "source": "/v1/:path*",
+      "destination": "https://nexus-173203641979.us-central1.run.app/v1/:path*"
+    }
+  ],
+  "env": {
+    "NEXT_PUBLIC_NEXUS_API_URL": "https://nexus-173203641979.us-central1.run.app"
+  }
 }
