@@ -57,7 +57,7 @@ export default function TopBar({
             setShowApiKeyModal(true)
           }}
         >
-          🔑 API Key
+          API Key
         </Button>
         <Button
           variant="ghost"
@@ -73,7 +73,7 @@ export default function TopBar({
           className="h-8 px-3 bg-orange-50 hover:bg-orange-100 text-orange-600 rounded-md"
           onClick={() => setShowUsageGuideModal(true)}
         >
-          📹 Usage Guide
+          Usage Guide
         </Button>
       </div>
     </div>

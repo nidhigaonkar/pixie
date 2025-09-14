@@ -131,7 +131,6 @@ export default function RightPanel({
 
         <div className="flex-1 p-4">
           <div className="space-y-4">
-            <div className="text-sm font-medium text-gray-700 mb-2">Zoom: {Math.round(zoom)}%</div>
             <div className="space-y-2">
               {aspectRatios.map((ratio) => (
                 <Button
@@ -189,32 +188,41 @@ export default function RightPanel({
               <div className="border-t border-gray-200 pt-4">
                 <div className="space-y-3">
                   <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <label className="text-sm font-medium text-gray-700">Describe the change</label>
-                      <div className="relative group">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className={`h-6 w-6 transition-colors ${
-                            !elevenlabsApiKey || elevenlabsApiKey.trim() === ''
-                              ? 'opacity-50 cursor-not-allowed'
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-gray-700">Describe the change</label>
+                        <div className="relative group">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className={`h-6 w-6 transition-colors ${
+                              !elevenlabsApiKey || elevenlabsApiKey.trim() === ''
+                                ? 'opacity-50 cursor-not-allowed'
+                                : isRecording
+                                  ? 'bg-red-100 border-red-500 text-red-500 hover:bg-red-200'
+                                  : 'hover:bg-gray-100'
+                            }`}
+                            onClick={elevenlabsApiKey && elevenlabsApiKey.trim() ? handleVoiceInput : undefined}
+                            disabled={!elevenlabsApiKey || elevenlabsApiKey.trim() === ''}
+                          >
+                            <Mic className={`w-3 h-3 ${isRecording ? 'animate-pulse' : ''}`} />
+                          </Button>
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
+                            {!elevenlabsApiKey || elevenlabsApiKey.trim() === ''
+                              ? 'Add an ElevenLabs API key to enable voice input'
                               : isRecording
-                                ? 'bg-red-100 border-red-500 text-red-500 hover:bg-red-200'
-                                : 'hover:bg-gray-100'
-                          }`}
-                          onClick={elevenlabsApiKey && elevenlabsApiKey.trim() ? handleVoiceInput : undefined}
-                          disabled={!elevenlabsApiKey || elevenlabsApiKey.trim() === ''}
-                        >
-                          <Mic className={`w-3 h-3 ${isRecording ? 'animate-pulse' : ''}`} />
-                        </Button>
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50">
-                          {!elevenlabsApiKey || elevenlabsApiKey.trim() === ''
-                            ? 'Add an ElevenLabs API key to enable voice input'
-                            : isRecording
-                              ? 'Recording... click to stop'
-                              : 'Use your microphone to describe the changes'}
+                                ? 'Recording... click to stop'
+                                : 'Use your microphone to describe the changes'}
+                          </div>
                         </div>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-3 py-1 bg-green-50 text-green-600 hover:bg-green-100 text-xs font-medium border border-green-200"
+                      >
+                        Live Mode
+                      </Button>
                     </div>
                     <textarea
                       value={selectionPrompt}
