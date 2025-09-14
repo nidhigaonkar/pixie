@@ -94,21 +94,76 @@ export default function FigmaAIApp() {
   const [codeGenerationModel, setCodeGenerationModel] = useState('gemini-2.5-flash')
   const [tempImageGenerationModel, setTempImageGenerationModel] = useState('gemini-2.5-flash-image-preview')
   const [tempCodeGenerationModel, setTempCodeGenerationModel] = useState('gemini-2.5-flash')
+  const [isFreeTier, setIsFreeTier] = useState(false)
+  const [dailyRequestCount, setDailyRequestCount] = useState(0)
+  const [showDailyLimitReached, setShowDailyLimitReached] = useState(false)
+  const FREE_TIER_DAILY_LIMIT = 5
   const canvasRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
+
+  // Encrypted storage utilities
+  const encryptData = (data: string): string => {
+    const key = 'pixie_daily_counter_' + new Date().toDateString()
+    return btoa(JSON.stringify({ data, key, timestamp: Date.now() }))
+  }
+
+  const decryptData = (encrypted: string): string | null => {
+    try {
+      const decoded = JSON.parse(atob(encrypted))
+      const expectedKey = 'pixie_daily_counter_' + new Date().toDateString()
+      if (decoded.key === expectedKey) {
+        return decoded.data
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  const getDailyRequestCount = (): number => {
+    const encrypted = localStorage.getItem('pixie_daily_requests')
+    if (!encrypted) return 0
+    const decrypted = decryptData(encrypted)
+    return decrypted ? parseInt(decrypted) : 0
+  }
+
+  const incrementDailyRequestCount = () => {
+    const current = getDailyRequestCount()
+    const newCount = current + 1
+    const encrypted = encryptData(newCount.toString())
+    localStorage.setItem('pixie_daily_requests', encrypted)
+    setDailyRequestCount(newCount)
+    
+    if (newCount >= FREE_TIER_DAILY_LIMIT && isFreeTier) {
+      setShowDailyLimitReached(true)
+    }
+  }
+
+  const handleTryPixie = () => {
+    setIsFreeTier(true)
+    setGeminiApiKey('FREE_TIER')
+    localStorage.setItem('gemini_api_key', 'FREE_TIER')
+    localStorage.setItem('is_free_tier', 'true')
+    setShowApiKeyModal(false)
+  }
 
   // Load API keys from localStorage on component mount
   useEffect(() => {
     const savedGeminiApiKey = localStorage.getItem('gemini_api_key')
     const savedElevenlabsApiKey = localStorage.getItem('elevenlabs_api_key')
+    const savedIsFreeTier = localStorage.getItem('is_free_tier') === 'true'
     
     if (savedGeminiApiKey) {
       setGeminiApiKey(savedGeminiApiKey)
+      setIsFreeTier(savedIsFreeTier)
     }
     if (savedElevenlabsApiKey) {
       setElevenlabsApiKey(savedElevenlabsApiKey)
     }
+    
+    // Load daily request count
+    setDailyRequestCount(getDailyRequestCount())
     
     // Show API key modal if no Gemini key is saved (required)
     if (!savedGeminiApiKey) {
@@ -200,17 +255,40 @@ export default function FigmaAIApp() {
         const errorData = await response.json().catch(() => ({detail: 'Invalid API key'}))
         let errorMessage = 'Invalid API key'
         
+        // Parse error response and provide user-friendly messages
         if (errorData.detail) {
-          // Handle different error response formats
           if (typeof errorData.detail === 'string') {
-            errorMessage = errorData.detail
+            // Check for common error patterns and provide friendly messages
+            if (errorData.detail.includes('API key not valid') || errorData.detail.includes('INVALID_ARGUMENT')) {
+              errorMessage = 'Invalid API key. Please check your Gemini API key.'
+            } else if (errorData.detail.includes('quota') || errorData.detail.includes('RESOURCE_EXHAUSTED')) {
+              errorMessage = 'API quota exceeded. Please check your billing or try again later.'
+            } else if (errorData.detail.includes('PERMISSION_DENIED')) {
+              errorMessage = 'Permission denied. Please check your API key permissions.'
+            } else {
+              errorMessage = errorData.detail
+            }
           } else if (Array.isArray(errorData.detail)) {
             errorMessage = errorData.detail.map((err: any) => err.msg || err.message || String(err)).join(', ')
           } else if (typeof errorData.detail === 'object') {
-            errorMessage = errorData.detail.msg || errorData.detail.message || JSON.stringify(errorData.detail)
+            // Handle nested error objects with friendly messages
+            const rawError = errorData.detail.msg || errorData.detail.message || JSON.stringify(errorData.detail)
+            if (rawError.includes('API key not valid') || rawError.includes('INVALID_ARGUMENT')) {
+              errorMessage = 'Invalid API key. Please check your Gemini API key.'
+            } else if (rawError.includes('quota') || rawError.includes('RESOURCE_EXHAUSTED')) {
+              errorMessage = 'API quota exceeded. Please check your billing or try again later.'
+            } else {
+              errorMessage = 'Invalid API key. Please check your Gemini API key.'
+            }
           }
         } else if (errorData.message) {
-          errorMessage = errorData.message
+          if (errorData.message.includes('API key not valid') || errorData.message.includes('INVALID_ARGUMENT')) {
+            errorMessage = 'Invalid API key. Please check your Gemini API key.'
+          } else if (errorData.message.includes('quota') || errorData.message.includes('RESOURCE_EXHAUSTED')) {
+            errorMessage = 'API quota exceeded. Please check your billing or try again later.'
+          } else {
+            errorMessage = errorData.message
+          }
         }
         
         setGeminiValidationResult({valid: false, message: errorMessage})
@@ -890,8 +968,19 @@ export default function FigmaAIApp() {
       return
     }
 
+    // Check daily limit for free tier
+    if (isFreeTier && dailyRequestCount >= FREE_TIER_DAILY_LIMIT) {
+      setShowDailyLimitReached(true)
+      return
+    }
+
     setIsGeneratingCode(true)
     setError(null)
+
+    // Increment request count for free tier
+    if (isFreeTier) {
+      incrementDailyRequestCount()
+    }
 
     try {
       // Convert base64 image to blob
@@ -918,7 +1007,7 @@ export default function FigmaAIApp() {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          'X-API-Key': geminiApiKey || 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
+          'X-API-Key': isFreeTier ? 'FREE_TIER' : (geminiApiKey || 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M')
         },
         body: formData
       })
@@ -977,12 +1066,23 @@ export default function FigmaAIApp() {
   }
 
   const handleSelectionSubmit = async () => {
-    if (!selectionBox || !selectedAspectRatio || !importedImage || !selectionPrompt.trim()) {
+    if (!selectionBox || !selectedAspectRatio || !selectionPrompt.trim() || !importedImage) {
+      return
+    }
+
+    // Check daily limit for free tier
+    if (isFreeTier && dailyRequestCount >= FREE_TIER_DAILY_LIMIT) {
+      setShowDailyLimitReached(true)
       return
     }
 
     setIsProcessingSelection(true)
     setError(null)
+
+    // Increment request count for free tier
+    if (isFreeTier) {
+      incrementDailyRequestCount()
+    }
 
     try {
       // Create a canvas to extract the selected area
@@ -1054,7 +1154,7 @@ export default function FigmaAIApp() {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          'X-API-Key': geminiApiKey || 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
+          'X-API-Key': isFreeTier ? 'FREE_TIER' : (geminiApiKey || 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M')
         },
         body: formData
       })
@@ -1195,18 +1295,28 @@ export default function FigmaAIApp() {
 
     if (!importedImage || currentHistoryIndex <= 0) {
       setError('No image available to view prompt for')
-      setTimeout(() => setError(null), 5000)
       return
     }
 
-    // If we have cached data, show the panel.
+    // Check if we already have cached prompt data for this history index
     if (promptCache[currentHistoryIndex]) {
       setShowPromptPanel(true)
       return
     }
 
+    // Check daily limit for free tier
+    if (isFreeTier && dailyRequestCount >= FREE_TIER_DAILY_LIMIT) {
+      setShowDailyLimitReached(true)
+      return
+    }
+
     setIsLoadingPrompt(true)
     setError(null)
+
+    // Increment request count for free tier
+    if (isFreeTier) {
+      incrementDailyRequestCount()
+    }
 
     // Get the prompt and request ID for the current transformation
     const currentTransformation = currentHistoryIndex > 0 ? 
@@ -1245,7 +1355,7 @@ export default function FigmaAIApp() {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
-          'X-API-Key': geminiApiKey || 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M'
+          'X-API-Key': isFreeTier ? 'FREE_TIER' : (geminiApiKey || 'AIzaSyA8QsHg05havRjPCsxozM_dM5qBd6yhY8M')
         },
         body: formData
       })
@@ -1557,6 +1667,40 @@ export default function FigmaAIApp() {
         </div>
       )}
 
+      {/* Daily Limit Reached Modal */}
+      {showDailyLimitReached && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="text-center">
+                <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-orange-100 mb-4">
+                  <AlertCircle className="h-6 w-6 text-orange-600" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Daily Limit Reached</h3>
+                <p className="text-sm text-gray-500 mb-6">
+                  You've used all {FREE_TIER_DAILY_LIMIT} free requests for today. Come back tomorrow for more, or contact us for unlimited access!
+                </p>
+                <div className="space-y-3">
+                  <Button
+                    onClick={() => window.open('mailto:pixie@workmail.com?subject=Love%20Pixie%20-%20Want%20More%20Access', '_blank')}
+                    className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
+                  >
+                    💌 Love the product? Chat more pixie@workmail.com
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowDailyLimitReached(false)}
+                    className="w-full"
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
 {/* API Key Modal */}
       {showApiKeyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1567,8 +1711,30 @@ export default function FigmaAIApp() {
                 Configure your API keys for AI features. Gemini is required, ElevenLabs is optional for voice input.
               </p>
               
+              {/* Try Pixie Button */}
+              <div className="mb-6">
+                <Button
+                  onClick={handleTryPixie}
+                  className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg transform transition-all duration-200 hover:scale-105"
+                >
+                  ✨ Try Pixie (Free Tier)
+                </Button>
+                <div className="mt-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-orange-800">
+                      <strong>Free Tier Limit:</strong> Only {FREE_TIER_DAILY_LIMIT} requests per day. Perfect for trying out Pixie's features!
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4 text-center text-gray-500 text-sm">
+                — OR —
+              </div>
+
               {/* Warning when no API key is set */}
-              {!tempGeminiApiKey.trim() && (
+              {!tempGeminiApiKey.trim() && !isFreeTier && (
                 <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <div className="flex items-start gap-2">
                     <AlertCircle className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />

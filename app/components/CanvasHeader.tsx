@@ -127,14 +127,14 @@ export default function CanvasHeader({
       <div className="flex gap-2">
         <div className="relative">
           {codeCopySuccess && (
-            <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 px-3 py-2 bg-green-600 text-white text-sm rounded-md shadow-lg z-50 whitespace-nowrap animate-in fade-in-0 zoom-in-95 duration-200">
+            <div className="absolute top-10 left-1/2 transform -translate-x-1/2 px-3 py-2 bg-green-600 text-white text-sm rounded-md shadow-lg z-50 whitespace-nowrap animate-in fade-in-0 zoom-in-95 duration-200">
               <div className="flex items-center gap-1">
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                 </svg>
                 {codeCopySuccess}
               </div>
-              <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-green-600"></div>
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-green-600"></div>
             </div>
           )}
           <Button
@@ -152,7 +152,7 @@ export default function CanvasHeader({
             ) : generatedCodeUrl ? (
               <>
                 <Code className="w-4 h-4 mr-2" />
-                Copy Link
+                Copy
               </>
             ) : (
               <>
