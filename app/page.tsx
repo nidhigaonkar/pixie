@@ -325,6 +325,8 @@ export default function FigmaAIApp() {
     img.src = importedImage
   }, [importedImage])
 
+  // No longer needed since we position the selection box in the viewport center
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (canvas) {
@@ -891,13 +893,17 @@ export default function FigmaAIApp() {
       console.log('✅ API Response data:', result)
       
       // Show popup with HTML path
+      console.log('🔍 Checking result.html_path:', result.html_path)
       if (result.html_path) {
+        console.log('✅ Setting popup data and showing popup')
         setCodePopupData({
           htmlPath: result.html_path,
           viewUrl: result.view_url
         })
         setShowCodePopup(true)
+        console.log('✅ Popup state set to true')
       } else {
+        console.log('❌ No html_path in result:', result)
         throw new Error('No HTML path returned from API')
       }
 
@@ -1227,6 +1233,8 @@ export default function FigmaAIApp() {
         setTempElevenlabsApiKey={setTempElevenlabsApiKey}
         setShowApiKeyModal={setShowApiKeyModal}
         setShowModelSettingsModal={setShowModelSettingsModal}
+        copySuccess={copySuccess}
+        setCopySuccess={setCopySuccess}
       />
 
       {/* Main Content Area */}
@@ -1595,6 +1603,52 @@ export default function FigmaAIApp() {
               <div className="flex justify-end gap-2">
                 <Button variant="ghost" onClick={() => setShowModelSettingsModal(false)}>Cancel</Button>
                 <Button onClick={saveModelSettings} className="bg-blue-600 hover:bg-blue-700 text-white">Save Settings</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Code Generation Success Popup */}
+      {(() => {
+        console.log('🔍 Popup render check - showCodePopup:', showCodePopup, 'codePopupData:', codePopupData)
+        return showCodePopup && codePopupData
+      })() && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">Code Generated Successfully! 🎉</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowCodePopup(false)}
+                className="h-8 w-8 p-0 hover:bg-gray-100"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6">
+              <p className="text-gray-600 mb-4">Your HTML code has been generated and is ready to view!</p>
+              
+              <div className="space-y-3">
+                <Button
+                  onClick={() => {
+                    const urlToOpen = codePopupData.viewUrl || codePopupData.htmlPath
+                    window.open(urlToOpen, '_blank')
+                    setShowCodePopup(false)
+                  }}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <Code className="w-4 h-4 mr-2" />
+                  View Generated HTML
+                </Button>
+                
+                <div className="text-xs text-gray-500 break-all bg-gray-50 p-2 rounded">
+                  {codePopupData.htmlPath}
+                </div>
               </div>
             </div>
           </div>

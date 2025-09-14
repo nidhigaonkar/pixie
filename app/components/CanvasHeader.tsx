@@ -120,6 +120,7 @@ export default function CanvasHeader({
         <Button
           variant="outline"
           size="sm"
+          className="hover:bg-green-50 hover:border-green-300 hover:text-green-600"
           onClick={handleGenerateCode}
           disabled={isGeneratingCode || !importedImage || currentHistoryIndex <= 0}
         >
@@ -139,6 +140,7 @@ export default function CanvasHeader({
         <Button
           variant="outline"
           size="sm"
+          className="hover:bg-green-50 hover:border-green-300 hover:text-green-600"
           onClick={handleExportImage}
           disabled={!importedImage}
         >
@@ -149,6 +151,7 @@ export default function CanvasHeader({
         <Button
           variant="outline"
           size="sm"
+          className="hover:bg-green-50 hover:border-green-300 hover:text-green-600"
           onClick={handleViewPrompt}
           disabled={isLoadingPrompt || !importedImage || currentHistoryIndex <= 0}
         >
