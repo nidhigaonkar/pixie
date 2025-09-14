@@ -1,9 +1,10 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { ChevronDown, Mic, Image as ImageIcon, X, AlertCircle } from "lucide-react"
+import { ChevronDown, Mic, Image as ImageIcon, X, AlertCircle, MicIcon, Volume2, Brain, Loader2 } from "lucide-react"
 import type React from "react"
 import { useRef, useCallback } from "react"
+import type { VoiceConversationState } from "@/lib/voice-conversation-service"
 
 type AspectRatio = { id: string; name: string; ratio: number }
 
@@ -31,6 +32,9 @@ type Props = {
   setReferenceImage: (v: string | null) => void
   error: string | null
   setError: (v: string | null) => void
+  voiceConversationState: VoiceConversationState
+  onStartLiveMode: () => Promise<void>
+  onStopLiveMode: () => void
 }
 
 const readFileAsDataURL = (file: File): Promise<string> => {
@@ -72,6 +76,9 @@ export default function RightPanel({
   setReferenceImage,
   error,
   setError,
+  voiceConversationState,
+  onStartLiveMode,
+  onStopLiveMode,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -219,17 +226,82 @@ export default function RightPanel({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-3 py-1 bg-green-50 text-green-600 hover:bg-green-100 text-xs font-medium border border-green-200"
+                        className={`h-6 px-3 py-1 text-xs font-medium border ${
+                          voiceConversationState.isActive
+                            ? 'bg-red-50 text-red-600 hover:bg-red-100 border-red-200'
+                            : 'bg-green-50 text-green-600 hover:bg-green-100 border-green-200'
+                        }`}
+                        onClick={voiceConversationState.isActive ? onStopLiveMode : onStartLiveMode}
+                        disabled={!elevenlabsApiKey || elevenlabsApiKey.trim() === '' || isProcessingSelection}
                       >
-                        Live Mode
+                        {voiceConversationState.isActive ? (
+                          <>
+                            {voiceConversationState.isListening && <MicIcon className="w-3 h-3 mr-1 animate-pulse" />}
+                            {voiceConversationState.isThinking && <Brain className="w-3 h-3 mr-1 animate-pulse" />}
+                            {voiceConversationState.isSpeaking && <Volume2 className="w-3 h-3 mr-1 animate-pulse" />}
+                            Stop Live Mode
+                          </>
+                        ) : (
+                          'Live Mode'
+                        )}
                       </Button>
                     </div>
+                    
+                    {/* Live Mode Status Display */}
+                    {voiceConversationState.isActive && (
+                      <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md text-xs">
+                        <div className="flex items-center gap-2 mb-1">
+                          {voiceConversationState.isListening && (
+                            <>
+                              <MicIcon className="w-3 h-3 text-blue-600 animate-pulse" />
+                              <span className="text-blue-700 font-medium">
+                                {selectionPrompt ? "Recognizing speech..." : "Listening..."}
+                              </span>
+                            </>
+                          )}
+                          {voiceConversationState.isThinking && (
+                            <>
+                              <Brain className="w-3 h-3 text-blue-600 animate-pulse" />
+                              <span className="text-blue-700 font-medium">Processing...</span>
+                            </>
+                          )}
+                          {voiceConversationState.isSpeaking && (
+                            <>
+                              <Volume2 className="w-3 h-3 text-blue-600 animate-pulse" />
+                              <span className="text-blue-700 font-medium">Speaking...</span>
+                            </>
+                          )}
+                          {!voiceConversationState.isListening && !voiceConversationState.isThinking && !voiceConversationState.isSpeaking && (
+                            <>
+                              <div className="w-3 h-3 bg-green-500 rounded-full" />
+                              <span className="text-blue-700 font-medium">Live Mode Active</span>
+                            </>
+                          )}
+                        </div>
+                        {voiceConversationState.isListening && voiceConversationState.currentPrompt && (
+                          <div className="text-blue-600">
+                            <span className="font-medium">Hearing:</span> "{voiceConversationState.currentPrompt}"
+                          </div>
+                        )}
+                        {voiceConversationState.conversationHistory.length > 0 && !voiceConversationState.isListening && (
+                          <div className="text-blue-600">
+                            Last: {voiceConversationState.conversationHistory[voiceConversationState.conversationHistory.length - 1]?.content.substring(0, 50)}
+                            {voiceConversationState.conversationHistory[voiceConversationState.conversationHistory.length - 1]?.content.length > 50 ? '...' : ''}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Main prompt textarea */}
                     <textarea
-                      value={selectionPrompt}
-                      onChange={(e) => setSelectionPrompt(e.target.value)}
+                      value={voiceConversationState.isActive ? voiceConversationState.currentPrompt : selectionPrompt}
+                      onChange={(e) => !voiceConversationState.isActive && setSelectionPrompt(e.target.value)}
                       onPaste={handlePaste}
-                      placeholder="Make the button blue, add a headline..."
-                      className="w-full px-3 py-2 border rounded-md text-sm min-h-[80px] resize-y"
+                      placeholder={voiceConversationState.isActive ? "Your spoken input will appear here..." : "Make the button blue, add a headline..."}
+                      className={`w-full px-3 py-2 border rounded-md text-sm min-h-[80px] resize-y ${
+                        voiceConversationState.isActive ? 'bg-gray-50' : ''
+                      }`}
+                      readOnly={voiceConversationState.isActive}
                     />
                   </div>
                   <div>
@@ -272,10 +344,15 @@ export default function RightPanel({
                   </div>
                   <Button
                     onClick={handleSelectionSubmit}
-                    disabled={isProcessingSelection || !selectionPrompt.trim()}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                    disabled={isProcessingSelection || !selectionPrompt.trim() || voiceConversationState.isActive}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
                   >
-                    {isProcessingSelection ? 'Processing...' : 'Apply Changes'}
+                    {voiceConversationState.isActive 
+                      ? 'Live Mode - Auto Apply' 
+                      : isProcessingSelection 
+                        ? 'Processing...' 
+                        : 'Apply Changes'
+                    }
                   </Button>
                 </div>
                 

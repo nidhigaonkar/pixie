@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
 import { AlertCircle, Upload, Download, Sparkles, Mic, MicOff, Loader2, Settings, Eye, EyeOff, X, Copy, History, ChevronDown, ZoomOut, ZoomIn, Code, Plus } from "lucide-react"
 import { captureWebsiteScreenshot, validateUrl, normalizeUrl } from "@/lib/screenshot-service"
+import { VoiceConversationService, type VoiceConversationState, type ConversationMessage } from "@/lib/voice-conversation-service"
 import TopBar from "./components/TopBar"
 import LeftSidebar from "./components/LeftSidebar"
 import CanvasHeader from "./components/CanvasHeader"
@@ -101,6 +102,18 @@ export default function FigmaAIApp() {
   const canvasRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
+
+  // Live Mode Voice Conversation State
+  const [voiceConversationState, setVoiceConversationState] = useState<VoiceConversationState>({
+    isActive: false,
+    isListening: false,
+    isThinking: false,
+    isSpeaking: false,
+    conversationHistory: [],
+    currentPrompt: '',
+    needsClarification: false
+  })
+  const voiceServiceRef = useRef<VoiceConversationService | null>(null)
 
   // Encrypted storage utilities
   const encryptData = (data: string): string => {
@@ -378,6 +391,272 @@ export default function FigmaAIApp() {
       console.error('Microphone access error:', error)
       setError('Failed to access microphone. Please check your permissions.')
       setTimeout(() => setError(null), 5000)
+    }
+  }
+
+  // Initialize voice service when API key changes
+  useEffect(() => {
+    if (elevenlabsApiKey && elevenlabsApiKey.trim()) {
+      voiceServiceRef.current = new VoiceConversationService(elevenlabsApiKey)
+    } else {
+      voiceServiceRef.current = null
+    }
+  }, [elevenlabsApiKey])
+
+  // Live Mode Voice Conversation Functions
+  const startLiveMode = async () => {
+    console.log('Starting Live Mode')
+    
+    // Basic checks
+    if (!elevenlabsApiKey?.trim()) {
+      setError('ElevenLabs API key is required for Live Mode')
+      return
+    }
+
+    if (!importedImage) {
+      setError('Please import an image before starting Live Mode')
+      return
+    }
+
+    if (!selectedAspectRatio) {
+      setError('Please select an aspect ratio before starting Live Mode')
+      return
+    }
+
+    if (!selectionBox) {
+      setError('Please make a selection on the image before starting Live Mode')
+      return
+    }
+
+    if (voiceConversationState.isActive) {
+      console.log('Live mode already active')
+      return
+    }
+
+    try {
+      // Clear any existing prompt
+      setSelectionPrompt('')
+
+      // Initialize voice service
+      if (!voiceServiceRef.current) {
+        voiceServiceRef.current = new VoiceConversationService(elevenlabsApiKey)
+      }
+
+      // Set state to active
+      setVoiceConversationState({
+        isActive: true,
+        isSpeaking: false,
+        isListening: true,
+        isThinking: false,
+        conversationHistory: [],
+        currentPrompt: '',
+        needsClarification: false
+      })
+
+      console.log('Live mode activated, starting speech recognition')
+      
+      // Start listening immediately (no welcome message to simplify)
+      await listenForUserResponse()
+
+    } catch (error) {
+      console.error('Error starting live mode:', error)
+      setError(`Failed to start Live Mode: ${error.message}`)
+      
+      // Reset state
+      setVoiceConversationState({
+        isActive: false,
+        isSpeaking: false,
+        isListening: false,
+        isThinking: false,
+        conversationHistory: [],
+        currentPrompt: '',
+        needsClarification: false
+      })
+    }
+  }
+
+  const stopLiveMode = () => {
+    voiceServiceRef.current?.cleanup()
+    setVoiceConversationState({
+      isActive: false,
+      isListening: false,
+      isThinking: false,
+      isSpeaking: false,
+      conversationHistory: [],
+      currentPrompt: '',
+      needsClarification: false
+    })
+  }
+
+  const speakToUser = async (text: string) => {
+    if (!voiceServiceRef.current) return
+
+    try {
+      setVoiceConversationState(prev => ({ ...prev, isSpeaking: true }))
+      
+      const audioBlob = await voiceServiceRef.current.textToSpeech(text)
+      await voiceServiceRef.current.playAudio(audioBlob)
+      
+      setVoiceConversationState(prev => ({ 
+        ...prev, 
+        isSpeaking: false,
+        conversationHistory: [
+          ...prev.conversationHistory,
+          { role: 'assistant', content: text, timestamp: new Date() }
+        ]
+      }))
+
+    } catch (error) {
+      console.error('Failed to speak to user:', error)
+      setVoiceConversationState(prev => ({ ...prev, isSpeaking: false }))
+      setError('Failed to generate voice response')
+      setTimeout(() => setError(null), 5000)
+    }
+  }
+
+  const listenForUserResponse = async () => {
+    if (!voiceServiceRef.current) {
+      console.error('Voice service not initialized')
+      return
+    }
+
+    try {
+      // Update state to show we're listening
+      setVoiceConversationState(prev => ({
+        ...prev,
+        isListening: true,
+        isSpeaking: false,
+        isThinking: false
+      }))
+
+      console.log('Starting speech recognition with callbacks')
+      
+      // Use live speech recognition with real-time transcript updates
+      voiceServiceRef.current.startLiveSpeechRecognition(
+        // Speech end callback - called when user finishes speaking
+        (transcript) => {
+          console.log('Speech ended callback received:', transcript)
+          if (transcript.trim()) {
+            processUserSpeechInput(transcript)
+          }
+        },
+        // Real-time transcript update callback - called while user is speaking
+        (transcript, isFinal) => {
+          console.log('Transcript update:', { transcript, isFinal })
+          
+          if (transcript.trim()) {
+            // Show the transcript is being recognized
+            setVoiceConversationState(prev => ({
+              ...prev,
+              currentPrompt: transcript,
+              isListening: true
+            }))
+          }
+        }
+      )
+
+    } catch (error) {
+      console.error('Failed to start listening:', error)
+      setError('Failed to start listening. Please check your microphone and browser compatibility.')
+      setTimeout(() => setError(null), 5000)
+      setVoiceConversationState(prev => ({ ...prev, isListening: false }))
+    }
+  }
+
+  const processUserSpeechInput = async (userText: string) => {
+    if (!voiceServiceRef.current) return
+
+    try {
+      // Update state to show we're processing
+      setVoiceConversationState(prev => ({
+        ...prev,
+        isListening: false,
+        isThinking: true,
+        conversationHistory: [
+          ...prev.conversationHistory,
+          { role: 'user', content: userText, timestamp: new Date() }
+        ]
+      }))
+
+      // Analyze user input
+      const analysis = voiceServiceRef.current.analyzeUserInput(userText)
+      
+      if (analysis.needsClarification && analysis.clarificationQuestion) {
+        // Ask for clarification (should be rare)
+        setVoiceConversationState(prev => ({ 
+          ...prev, 
+          isThinking: false,
+          needsClarification: true 
+        }))
+        
+        await speakToUser(analysis.clarificationQuestion)
+        
+        // Continue listening for clarification
+        setVoiceConversationState(prev => ({ 
+          ...prev, 
+          needsClarification: false,
+          isListening: true 
+        }))
+        
+        // Start listening again
+        await listenForUserResponse()
+        
+      } else {
+        // Input is clear, apply changes immediately
+        console.log('Setting selection prompt to:', userText)
+        setSelectionPrompt(userText)
+
+        setVoiceConversationState(prev => ({
+          ...prev,
+          isThinking: false,
+          currentPrompt: userText
+        }))
+        
+        await speakToUser("Perfect! Applying those changes now.")
+
+        // Keep listening while changes are being applied
+        setVoiceConversationState(prev => ({
+          ...prev,
+          isListening: true,
+          isThinking: false
+        }))
+
+        // Apply changes in background
+        handleSelectionSubmitWithPrompt(userText).then(() => {
+          // After changes are applied, give feedback and prompt for next request
+          if (voiceServiceRef.current && voiceConversationState.isActive) {
+            speakToUser("Changes applied! What would you like to modify next?").then(() => {
+              // Now start listening for the next request
+              listenForUserResponse()
+            })
+          }
+        }).catch((error) => {
+          console.error('Failed to apply changes:', error)
+          if (voiceServiceRef.current && voiceConversationState.isActive) {
+            speakToUser("Sorry, I couldn't apply those changes. Please try again or describe what you'd like differently.").then(() => {
+              // Start listening again after error
+              listenForUserResponse()
+            })
+          }
+        })
+
+        // Continue current speech recognition (don't start a new one yet)
+        // The new listening session will start after the changes are applied
+      }
+
+    } catch (error) {
+      console.error('Failed to process user voice input:', error)
+      
+      setVoiceConversationState(prev => ({ 
+        ...prev, 
+        isListening: false, 
+        isThinking: false 
+      }))
+      
+      await speakToUser("I'm sorry, I didn't catch that. Could you please repeat your request?")
+      
+      // Start listening again
+      await listenForUserResponse()
     }
   }
 
@@ -1065,8 +1344,38 @@ export default function FigmaAIApp() {
     }
   }
 
+  const handleSelectionSubmitWithPrompt = async (promptText: string) => {
+    return await handleSelectionSubmitInternal(promptText)
+  }
+
   const handleSelectionSubmit = async () => {
-    if (!selectionBox || !selectedAspectRatio || !selectionPrompt.trim() || !importedImage) {
+    return await handleSelectionSubmitInternal(selectionPrompt)
+  }
+
+  const handleSelectionSubmitInternal = async (promptText: string) => {
+    // Create default selection if missing (for voice mode)
+    let currentSelectionBox = selectionBox
+    if (!currentSelectionBox && selectedAspectRatio && importedImage && promptText.trim()) {
+      const defaultWidth = 400
+      const defaultHeight = selectedAspectRatio.id === 'freestyle' ? 300 : defaultWidth / selectedAspectRatio.ratio
+
+      currentSelectionBox = {
+        x: imagePosition.x + 50,
+        y: imagePosition.y + 50,
+        width: defaultWidth,
+        height: defaultHeight
+      }
+
+      setSelectionBox(currentSelectionBox)
+    }
+
+    if (!currentSelectionBox || !selectedAspectRatio || !promptText.trim() || !importedImage) {
+      console.log('Missing requirements for selection submit:', {
+        selectionBox: !!currentSelectionBox,
+        selectedAspectRatio: !!selectedAspectRatio,
+        selectionPrompt: !!promptText.trim(),
+        importedImage: !!importedImage
+      })
       return
     }
 
@@ -1101,14 +1410,14 @@ export default function FigmaAIApp() {
       })
 
       // Set canvas dimensions to match selection
-      canvas.width = selectionBox.width
-      canvas.height = selectionBox.height
+      canvas.width = currentSelectionBox.width
+      canvas.height = currentSelectionBox.height
 
       // Draw the selected portion of the image
       ctx.drawImage(
         img,
-        selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height,
-        0, 0, selectionBox.width, selectionBox.height
+        currentSelectionBox.x, currentSelectionBox.y, currentSelectionBox.width, currentSelectionBox.height,
+        0, 0, currentSelectionBox.width, currentSelectionBox.height
       )
 
       // Convert canvas to blob
@@ -1121,11 +1430,11 @@ export default function FigmaAIApp() {
       // Prepare form data
       const requestId = `pixie_${Date.now()}`
       const formData = new FormData()
-      formData.append('prompt', selectionPrompt.trim())
+      formData.append('prompt', promptText.trim())
       formData.append('image', blob, 'selection.png')
       // Calculate dynamic aspect ratio based on actual selection box dimensions
-      const dynamicAspectRatio = selectedAspectRatio.id === 'freestyle' 
-        ? selectionBox.width / selectionBox.height 
+      const dynamicAspectRatio = selectedAspectRatio.id === 'freestyle'
+        ? currentSelectionBox.width / currentSelectionBox.height
         : selectedAspectRatio.ratio
       formData.append('aspect_ratio', `${dynamicAspectRatio}:1`)
       formData.append('model', imageGenerationModel)
@@ -1145,7 +1454,7 @@ export default function FigmaAIApp() {
       console.log('🔄 Making apply transformation API call:', {
         endpoint: endpoint,
         requestId: requestId,
-        prompt: selectionPrompt.trim(),
+        prompt: promptText.trim(),
         aspectRatio: `${dynamicAspectRatio}:1`,
         imageSize: blob.size
       })
@@ -1216,7 +1525,7 @@ export default function FigmaAIApp() {
       // Draw the modified selection over it
       finalCtx.drawImage(
         resultImg,
-        selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height
+        currentSelectionBox.x, currentSelectionBox.y, currentSelectionBox.width, currentSelectionBox.height
       )
 
       // Convert final canvas to data URL and update the image
@@ -1235,7 +1544,7 @@ export default function FigmaAIApp() {
       // Add to history
       setPromptHistory(prev => [{
         timestamp: Date.now(),
-        prompt: selectionPrompt.trim(),
+        prompt: promptText.trim(),
         requestId: requestId
       }, ...prev])
 
@@ -1640,6 +1949,9 @@ export default function FigmaAIApp() {
           setReferenceImage={setReferenceImage}
           error={error}
           setError={setError}
+          voiceConversationState={voiceConversationState}
+          onStartLiveMode={startLiveMode}
+          onStopLiveMode={stopLiveMode}
         />
       </div>
 
