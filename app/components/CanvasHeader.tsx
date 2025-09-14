@@ -140,7 +140,7 @@ export default function CanvasHeader({
           <Button
             variant="outline"
             size="sm"
-            className="hover:bg-green-50 hover:border-green-300 hover:text-green-600"
+            className={generatedCodeUrl ? "bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700 border-0 shadow-lg" : "hover:bg-green-50 hover:border-green-300 hover:text-green-600"}
             onClick={generatedCodeUrl ? handleCopyCodeLink : handleGenerateCode}
             disabled={isGeneratingCode || !importedImage}
           >
@@ -152,7 +152,7 @@ export default function CanvasHeader({
             ) : generatedCodeUrl ? (
               <>
                 <Code className="w-4 h-4 mr-2" />
-                Copy
+                Copy Link
               </>
             ) : (
               <>

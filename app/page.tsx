@@ -91,9 +91,9 @@ export default function FigmaAIApp() {
   const [showModelSettingsModal, setShowModelSettingsModal] = useState(false)
   const [showUsageGuideModal, setShowUsageGuideModal] = useState(false)
   const [imageGenerationModel, setImageGenerationModel] = useState('gemini-2.5-flash-image-preview')
-  const [codeGenerationModel, setCodeGenerationModel] = useState('gemini-2.5-flash')
+  const [codeGenerationModel, setCodeGenerationModel] = useState('gemini-2.5-flash-lite')
   const [tempImageGenerationModel, setTempImageGenerationModel] = useState('gemini-2.5-flash-image-preview')
-  const [tempCodeGenerationModel, setTempCodeGenerationModel] = useState('gemini-2.5-flash')
+  const [tempCodeGenerationModel, setTempCodeGenerationModel] = useState('gemini-2.5-flash-lite')
   const [isFreeTier, setIsFreeTier] = useState(false)
   const [dailyRequestCount, setDailyRequestCount] = useState(0)
   const [showDailyLimitReached, setShowDailyLimitReached] = useState(false)
@@ -233,7 +233,7 @@ export default function FigmaAIApp() {
           'X-API-Key': tempGeminiApiKey.trim()
         },
         body: JSON.stringify({
-          model: 'gemini-2.5-flash',
+          model: 'gemini-2.5-flash-lite',
           messages: [
             {
               role: 'system',
