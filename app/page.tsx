@@ -904,17 +904,23 @@ export default function FigmaAIApp() {
         img.src = imageDataUrl
       })
       
+      // Wait for canvas to be ready and calculate optimal zoom
+      await new Promise(resolve => setTimeout(resolve, 100)) // Small delay to ensure canvas is rendered
+      
       if (canvasRef.current) {
         const canvas = canvasRef.current
         const canvasWidth = canvas.clientWidth - 64 // Account for padding
         const canvasHeight = canvas.clientHeight - 64
         
-        const scaleX = canvasWidth / img.width
-        const scaleY = canvasHeight / img.height
-        const optimalScale = Math.min(scaleX, scaleY, 1) // Don't zoom in, only zoom out
-        
-        const optimalZoom = Math.max(25, Math.min(100, optimalScale * 100)) // Keep within zoom bounds
-        setZoom(Math.round(optimalZoom))
+        // Only calculate zoom if canvas has dimensions
+        if (canvasWidth > 0 && canvasHeight > 0) {
+          const scaleX = canvasWidth / img.width
+          const scaleY = canvasHeight / img.height
+          const optimalScale = Math.min(scaleX, scaleY, 1) // Don't zoom in, only zoom out
+          
+          const optimalZoom = Math.max(25, Math.min(100, optimalScale * 100)) // Keep within zoom bounds
+          setZoom(Math.round(optimalZoom))
+        }
       }
       
       // Add to history
