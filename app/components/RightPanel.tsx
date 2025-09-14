@@ -173,7 +173,14 @@ export default function RightPanel({
                     }
                   }}
                 >
-                  {ratio.name}
+                  <div className="flex items-center justify-between w-full">
+                    <span>{ratio.name}</span>
+                    {ratio.id === 'freestyle' && (
+                      <span className="ml-2 px-1.5 py-0.5 text-xs bg-orange-100 text-orange-600 rounded-full font-medium">
+                        BETA
+                      </span>
+                    )}
+                  </div>
                 </Button>
               ))}
             </div>

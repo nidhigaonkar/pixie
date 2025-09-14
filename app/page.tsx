@@ -15,8 +15,6 @@ import CanvasHeader from "./components/CanvasHeader"
 import BottomBar from "./components/BottomBar"
 import RightPanel from "./components/RightPanel"
 
-// Helper to get the unified API base URL
-// Prefer env var; otherwise default to the GCP Cloud Run URL
 const getApiBaseUrl = () => {
   return process.env.NEXT_PUBLIC_NEXUS_API_URL || 'https://nexus-173203641979.us-central1.run.app'
 }
@@ -32,7 +30,8 @@ const ASPECT_RATIOS: AspectRatio[] = [
   { id: 'portrait', name: '3:4 (Portrait full screen)', ratio: 3/4 },
   { id: 'fullscreen', name: '4:3 (Fullscreen)', ratio: 4/3 },
   { id: 'mobile', name: '9:16 (Portrait, common for mobile)', ratio: 9/16 },
-  { id: 'widescreen', name: '16:9 (Widescreen)', ratio: 16/9 }
+  { id: 'widescreen', name: '16:9 (Widescreen)', ratio: 16/9 },
+  { id: 'freestyle', name: 'Free Style', ratio: 1 }
 ]
 
 
@@ -44,8 +43,7 @@ export default function FigmaAIApp() {
   const [isImporting, setIsImporting] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isGeneratingCode, setIsGeneratingCode] = useState(false)
-  const [showCodePopup, setShowCodePopup] = useState(false)
-  const [codePopupData, setCodePopupData] = useState<{htmlPath: string; viewUrl?: string} | null>(null)
+  const [generatedCodeUrl, setGeneratedCodeUrl] = useState<string | null>(null)
   const [importedImage, setImportedImage] = useState<string | null>(null)
   const [zoom, setZoom] = useState(100)
   const [error, setError] = useState<string | null>(null)
@@ -72,10 +70,11 @@ export default function FigmaAIApp() {
   const [promptCache, setPromptCache] = useState<{[historyIndex: number]: {instructions: string; assets: any[]}}>({})
   const [showPromptPanel, setShowPromptPanel] = useState(false)
   const [copySuccess, setCopySuccess] = useState<string | null>(null)
+  const [codeCopySuccess, setCodeCopySuccess] = useState<string | null>(null)
   const [showSuccess, setShowSuccess] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [currentView, setCurrentView] = useState<'design'>('design')
-  const [imageHistory, setImageHistory] = useState<string[]>([])
+  const [imageHistory, setImageHistory] = useState<{image: string; description: string; prompt?: string; reference?: string; timestamp: number}[]>([])
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1)
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
   const [showPromptPopup, setShowPromptPopup] = useState(false)
@@ -90,10 +89,11 @@ export default function FigmaAIApp() {
   const [isValidatingGemini, setIsValidatingGemini] = useState(false)
   const [geminiValidationResult, setGeminiValidationResult] = useState<{valid: boolean; message: string} | null>(null)
   const [showModelSettingsModal, setShowModelSettingsModal] = useState(false)
+  const [showUsageGuideModal, setShowUsageGuideModal] = useState(false)
   const [imageGenerationModel, setImageGenerationModel] = useState('gemini-2.5-flash-image-preview')
-  const [codeGenerationModel, setCodeGenerationModel] = useState('gemini-2.5-pro')
+  const [codeGenerationModel, setCodeGenerationModel] = useState('gemini-2.5-flash')
   const [tempImageGenerationModel, setTempImageGenerationModel] = useState('gemini-2.5-flash-image-preview')
-  const [tempCodeGenerationModel, setTempCodeGenerationModel] = useState('gemini-2.5-pro')
+  const [tempCodeGenerationModel, setTempCodeGenerationModel] = useState('gemini-2.5-flash')
   const canvasRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -178,7 +178,7 @@ export default function FigmaAIApp() {
           'X-API-Key': tempGeminiApiKey.trim()
         },
         body: JSON.stringify({
-          model: 'gemini-2.5-flash-lite',
+          model: 'gemini-2.5-flash',
           messages: [
             {
               role: 'system',
@@ -403,33 +403,60 @@ export default function FigmaAIApp() {
         const deltaX = (e.clientX - resizeStart.x) / scale
         const deltaY = (e.clientY - resizeStart.y) / scale
         
-        // Calculate new dimensions based on aspect ratio
+        // Calculate new dimensions - flexible for freestyle, constrained for others
         let newWidth = selectionBox.width
         let newHeight = selectionBox.height
         let newX = selectionBox.x
         let newY = selectionBox.y
         
-        switch (resizeHandle) {
-          case 'top-left':
-            newWidth = selectionBox.width - deltaX
-            newHeight = newWidth / selectedAspectRatio.ratio
-            newX = selectionBox.x + deltaX
-            newY = selectionBox.y + (selectionBox.height - newHeight)
-            break
-          case 'top-right':
-            newWidth = selectionBox.width + deltaX
-            newHeight = newWidth / selectedAspectRatio.ratio
-            newY = selectionBox.y + (selectionBox.height - newHeight)
-            break
-          case 'bottom-left':
-            newWidth = selectionBox.width - deltaX
-            newHeight = newWidth / selectedAspectRatio.ratio
-            newX = selectionBox.x + deltaX
-            break
-          case 'bottom-right':
-            newWidth = selectionBox.width + deltaX
-            newHeight = newWidth / selectedAspectRatio.ratio
-            break
+        if (selectedAspectRatio.id === 'freestyle') {
+          // Free style: allow independent width and height changes
+          switch (resizeHandle) {
+            case 'top-left':
+              newWidth = selectionBox.width - deltaX
+              newHeight = selectionBox.height - deltaY
+              newX = selectionBox.x + deltaX
+              newY = selectionBox.y + deltaY
+              break
+            case 'top-right':
+              newWidth = selectionBox.width + deltaX
+              newHeight = selectionBox.height - deltaY
+              newY = selectionBox.y + deltaY
+              break
+            case 'bottom-left':
+              newWidth = selectionBox.width - deltaX
+              newHeight = selectionBox.height + deltaY
+              newX = selectionBox.x + deltaX
+              break
+            case 'bottom-right':
+              newWidth = selectionBox.width + deltaX
+              newHeight = selectionBox.height + deltaY
+              break
+          }
+        } else {
+          // Fixed aspect ratio: maintain ratio during resize
+          switch (resizeHandle) {
+            case 'top-left':
+              newWidth = selectionBox.width - deltaX
+              newHeight = newWidth / selectedAspectRatio.ratio
+              newX = selectionBox.x + deltaX
+              newY = selectionBox.y + (selectionBox.height - newHeight)
+              break
+            case 'top-right':
+              newWidth = selectionBox.width + deltaX
+              newHeight = newWidth / selectedAspectRatio.ratio
+              newY = selectionBox.y + (selectionBox.height - newHeight)
+              break
+            case 'bottom-left':
+              newWidth = selectionBox.width - deltaX
+              newHeight = newWidth / selectedAspectRatio.ratio
+              newX = selectionBox.x + deltaX
+              break
+            case 'bottom-right':
+              newWidth = selectionBox.width + deltaX
+              newHeight = newWidth / selectedAspectRatio.ratio
+              break
+          }
         }
         
         // Ensure minimum size
@@ -492,6 +519,26 @@ export default function FigmaAIApp() {
         setZoom(100)
       }
 
+      // Ctrl/Cmd + Z to undo
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault()
+        if (currentHistoryIndex > 0) {
+          setCurrentHistoryIndex(prev => prev - 1)
+          const prevIndex = currentHistoryIndex - 1
+          if (imageHistory[prevIndex]) setImportedImage(imageHistory[prevIndex].image)
+        }
+      }
+
+      // Ctrl/Cmd + Y or Ctrl/Cmd + Shift + Z to redo
+      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault()
+        if (currentHistoryIndex < imageHistory.length - 1) {
+          setCurrentHistoryIndex(prev => prev + 1)
+          const nextIndex = currentHistoryIndex + 1
+          if (imageHistory[nextIndex]) setImportedImage(imageHistory[nextIndex].image)
+        }
+      }
+
       // Enter to submit selection
       if (e.key === "Enter" && selectionBox && selectedAspectRatio && selectionPrompt.trim()) {
         e.preventDefault()
@@ -501,7 +548,7 @@ export default function FigmaAIApp() {
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [selectionBox, selectedAspectRatio, selectionPrompt])
+  }, [selectionBox, selectedAspectRatio, selectionPrompt, currentHistoryIndex, imageHistory])
 
   const handleImportWebsite = async () => {
     if (!websiteUrl) return
@@ -529,23 +576,17 @@ export default function FigmaAIApp() {
           img.src = newImage
         })
         
-        if (canvasRef.current) {
-          const canvas = canvasRef.current
-          const canvasWidth = canvas.clientWidth - 64 // Account for padding
-          const canvasHeight = canvas.clientHeight - 64
-          
-          const scaleX = canvasWidth / img.width
-          const scaleY = canvasHeight / img.height
-          const optimalScale = Math.min(scaleX, scaleY, 1) // Don't zoom in, only zoom out
-          
-          const optimalZoom = Math.max(25, Math.min(100, optimalScale * 100)) // Keep within zoom bounds
-          setZoom(Math.round(optimalZoom))
-        }
+        // Set zoom to 75% for imported websites
+        setZoom(75)
         
         setImportedImage(newImage)
         setImportMetadata(result.metadata)
         // Add to history
-        setImageHistory(prev => [...prev.slice(0, currentHistoryIndex + 1), newImage])
+        setImageHistory(prev => [...prev.slice(0, currentHistoryIndex + 1), {
+          image: newImage,
+          description: "Website imported",
+          timestamp: Date.now()
+        }])
         setCurrentHistoryIndex(prev => prev + 1)
         // Image position is fixed at 32, 32
         setError(null)
@@ -799,7 +840,11 @@ export default function FigmaAIApp() {
       }
       
       // Add to history
-      setImageHistory(prev => [...prev.slice(0, currentHistoryIndex + 1), imageDataUrl])
+      setImageHistory(prev => [...prev.slice(0, currentHistoryIndex + 1), {
+        image: imageDataUrl,
+        description: "Image uploaded",
+        timestamp: Date.now()
+      }])
       setCurrentHistoryIndex(prev => prev + 1)
       setImportedImage(imageDataUrl)
       // Image position is fixed at 32, 32
@@ -892,16 +937,14 @@ export default function FigmaAIApp() {
       const result = await response.json()
       console.log('✅ API Response data:', result)
       
-      // Show popup with HTML path
+      // Store the generated URL
       console.log('🔍 Checking result.html_path:', result.html_path)
       if (result.html_path) {
-        console.log('✅ Setting popup data and showing popup')
-        setCodePopupData({
-          htmlPath: result.html_path,
-          viewUrl: result.view_url
-        })
-        setShowCodePopup(true)
-        console.log('✅ Popup state set to true')
+        console.log('✅ Setting generated URL')
+        const baseUrl = getApiBaseUrl()
+        const fullUrl = result.view_url || `${baseUrl}${result.html_path}`
+        setGeneratedCodeUrl(fullUrl)
+        console.log('✅ Generated URL stored:', fullUrl)
       } else {
         console.log('❌ No html_path in result:', result)
         throw new Error('No HTML path returned from API')
@@ -917,6 +960,19 @@ export default function FigmaAIApp() {
       }, 5000)
     } finally {
       setIsGeneratingCode(false)
+    }
+  }
+
+  const handleCopyCodeLink = async () => {
+    if (!generatedCodeUrl) return
+    
+    try {
+      await navigator.clipboard.writeText(generatedCodeUrl)
+      setCodeCopySuccess('Link copied!')
+      setTimeout(() => setCodeCopySuccess(null), 2000)
+    } catch {
+      setCodeCopySuccess('Copy failed')
+      setTimeout(() => setCodeCopySuccess(null), 2000)
     }
   }
 
@@ -967,7 +1023,11 @@ export default function FigmaAIApp() {
       const formData = new FormData()
       formData.append('prompt', selectionPrompt.trim())
       formData.append('image', blob, 'selection.png')
-      formData.append('aspect_ratio', `${selectedAspectRatio.ratio}:1`)
+      // Calculate dynamic aspect ratio based on actual selection box dimensions
+      const dynamicAspectRatio = selectedAspectRatio.id === 'freestyle' 
+        ? selectionBox.width / selectionBox.height 
+        : selectedAspectRatio.ratio
+      formData.append('aspect_ratio', `${dynamicAspectRatio}:1`)
       formData.append('model', imageGenerationModel)
       formData.append('request_id', requestId)
       formData.append('numberOfImages', '1')
@@ -986,7 +1046,7 @@ export default function FigmaAIApp() {
         endpoint: endpoint,
         requestId: requestId,
         prompt: selectionPrompt.trim(),
-        aspectRatio: `${selectedAspectRatio.ratio}:1`,
+        aspectRatio: `${dynamicAspectRatio}:1`,
         imageSize: blob.size
       })
 
@@ -1061,8 +1121,14 @@ export default function FigmaAIApp() {
 
       // Convert final canvas to data URL and update the image
       const finalImageUrl = finalCanvas.toDataURL()
-      // Add to history
-      setImageHistory(prev => [...prev.slice(0, currentHistoryIndex + 1), finalImageUrl])
+      // Add to image history
+      setImageHistory(prev => [...prev.slice(0, currentHistoryIndex + 1), {
+        image: finalImageUrl,
+        description: selectionPrompt || "Image transformation",
+        prompt: selectionPrompt,
+        reference: referenceImage || undefined,
+        timestamp: Date.now()
+      }])
       setCurrentHistoryIndex(prev => prev + 1)
       setImportedImage(finalImageUrl)
 
@@ -1100,18 +1166,24 @@ export default function FigmaAIApp() {
   }
 
   const handleExportImage = () => {
-    if (!importedImage) {
-      setError('No image to export')
-      setTimeout(() => setError(null), 5000)
-      return
-    }
-
+    if (!importedImage) return
+    
     const link = document.createElement('a')
+    link.download = 'pixie-export.png'
     link.href = importedImage
-    link.download = `pixie-export-${Date.now()}.png`
-    document.body.appendChild(link)
     link.click()
-    document.body.removeChild(link)
+  }
+
+  const handleClearCanvas = () => {
+    setImportedImage(null)
+    setImageHistory([])
+    setCurrentHistoryIndex(-1)
+    setSelectionBox(null)
+    setSelectionPrompt('')
+    setGeneratedCodeUrl(null)
+    setImportMetadata(null)
+    setZoom(100)
+    setError(null)
   }
 
   const handleViewPrompt = async () => {
@@ -1233,8 +1305,8 @@ export default function FigmaAIApp() {
         setTempElevenlabsApiKey={setTempElevenlabsApiKey}
         setShowApiKeyModal={setShowApiKeyModal}
         setShowModelSettingsModal={setShowModelSettingsModal}
-        copySuccess={copySuccess}
-        setCopySuccess={setCopySuccess}
+        showUsageGuideModal={showUsageGuideModal}
+        setShowUsageGuideModal={setShowUsageGuideModal}
       />
 
       {/* Main Content Area */}
@@ -1263,10 +1335,14 @@ export default function FigmaAIApp() {
             isGeneratingCode={isGeneratingCode}
             importedImage={importedImage}
             handleGenerateCode={handleGenerateCode}
+            generatedCodeUrl={generatedCodeUrl}
+            handleCopyCodeLink={handleCopyCodeLink}
+            codeCopySuccess={codeCopySuccess}
             isLoadingPrompt={isLoadingPrompt}
             handleViewPrompt={handleViewPrompt}
             hasPrompt={!!promptCache[currentHistoryIndex]}
             handleExportImage={handleExportImage}
+            handleClearCanvas={handleClearCanvas}
           />
 
           {/* Prompt Panel (dropdown) */}
@@ -1609,51 +1685,45 @@ export default function FigmaAIApp() {
         </div>
       )}
 
-      {/* Code Generation Success Popup */}
-      {(() => {
-        console.log('🔍 Popup render check - showCodePopup:', showCodePopup, 'codePopupData:', codePopupData)
-        return showCodePopup && codePopupData
-      })() && (
+      {/* Usage Guide Modal */}
+      {showUsageGuideModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full shadow-2xl">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Code Generated Successfully! 🎉</h2>
+              <h2 className="text-xl font-semibold text-gray-900">📹 Usage Guide</h2>
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setShowCodePopup(false)}
+                onClick={() => setShowUsageGuideModal(false)}
                 className="h-8 w-8 p-0 hover:bg-gray-100"
               >
                 <X className="w-4 h-4" />
               </Button>
             </div>
             
-            {/* Content */}
+            {/* Video Content */}
             <div className="p-6">
-              <p className="text-gray-600 mb-4">Your HTML code has been generated and is ready to view!</p>
-              
-              <div className="space-y-3">
-                <Button
-                  onClick={() => {
-                    const urlToOpen = codePopupData.viewUrl || codePopupData.htmlPath
-                    window.open(urlToOpen, '_blank')
-                    setShowCodePopup(false)
-                  }}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white"
-                >
-                  <Code className="w-4 h-4 mr-2" />
-                  View Generated HTML
-                </Button>
-                
-                <div className="text-xs text-gray-500 break-all bg-gray-50 p-2 rounded">
-                  {codePopupData.htmlPath}
-                </div>
+              <div className="aspect-video w-full">
+                <iframe
+                  width="100%"
+                  height="100%"
+                  src="https://www.youtube.com/embed/L-UfqH5WQ-k"
+                  title="Pixie Usage Guide"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  className="rounded-lg"
+                ></iframe>
+              </div>
+              <div className="mt-4 text-sm text-gray-600">
+                <p>This video will guide you through all the features of Pixie and show you how to get the most out of the tool.</p>
               </div>
             </div>
           </div>
         </div>
       )}
+
     </div>
   )
 }

@@ -8,7 +8,7 @@ type PromptHistoryItem = { timestamp: number; prompt: string; requestId: string 
 type Props = {
   leftSidebarOpen: boolean
   setLeftSidebarOpen: (v: (prev: boolean) => boolean) => void
-  imageHistory: string[]
+  imageHistory: {image: string; description: string; prompt?: string; reference?: string; timestamp: number}[]
   currentHistoryIndex: number
   setCurrentHistoryIndex: (v: number | ((prev: number) => number)) => void
   setImportedImage: (v: string) => void
@@ -49,22 +49,25 @@ export default function LeftSidebar({
                     }`}
                     onClick={() => {
                       setCurrentHistoryIndex(historyIndex)
-                      setImportedImage(imageHistory[historyIndex])
+                      setImportedImage(imageHistory[historyIndex].image)
                     }}
                   >
                     <div className="text-gray-900">
                       {isOriginal ? (
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">Original Image</span>
+                          <span className="font-medium">{imageHistory[historyIndex].description}</span>
                         </div>
-                      ) : prompt ? (
-                        prompt.prompt
                       ) : (
-                        'Image Update'
+                        <div>
+                          <div className="font-medium">{imageHistory[historyIndex].description}</div>
+                          {imageHistory[historyIndex].prompt && imageHistory[historyIndex].prompt !== imageHistory[historyIndex].description && (
+                            <div className="text-xs text-gray-600 mt-1">{imageHistory[historyIndex].prompt}</div>
+                          )}
+                        </div>
                       )}
                     </div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {prompt ? new Date(prompt.timestamp).toLocaleTimeString() : ''}
+                      {new Date(imageHistory[historyIndex].timestamp).toLocaleTimeString()}
                     </div>
                   </div>
                 )
