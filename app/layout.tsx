@@ -7,11 +7,11 @@ import { Suspense } from "react"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Pixie - Your AI Design Partner",
+  title: "Pixie - Your Design Partner",
   description: "Transform UI components with AI-powered voice commands and real-time design modifications",
   generator: "v0.app",
   openGraph: {
-    title: "Pixie - Your AI Design Partner",
+    title: "Pixie - Your Design Partner",
     description: "Transform UI components with AI-powered voice commands and real-time design modifications",
     url: "https://pixiedesign.vercel.app",
     siteName: "Pixie",
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
         url: "/api/og",
         width: 1200,
         height: 630,
-        alt: "Pixie - Your AI Design Partner",
+        alt: "Pixie - Your Design Partner",
       },
     ],
     locale: "en_US",
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Pixie - Your AI Design Partner",
+    title: "Pixie - Your Design Partner",
     description: "Transform UI components with AI-powered voice commands and real-time design modifications",
     images: ["/api/og"],
   },

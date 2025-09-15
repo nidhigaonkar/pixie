@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
                 textAlign: 'center',
               }}
             >
-              your ai design partner
+              your design partner
             </div>
           </div>
         </div>
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
         >
           <div>🎨 Pixie</div>
           <div style={{ fontSize: 30, marginTop: 20, fontWeight: 'normal' }}>
-            your ai design partner
+            your design partner
           </div>
         </div>
       ),
