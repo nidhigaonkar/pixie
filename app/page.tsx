@@ -2017,18 +2017,13 @@ export default function FigmaAIApp() {
               <div className="p-8">
                 <div
                   ref={imageWrapperRef}
-                  className={`relative shadow-sm border rounded select-none ${
-                    imageNaturalSize?.height && imageNaturalSize?.width && 
-                    (imageNaturalSize.height / imageNaturalSize.width >= 2) ? 
-                    'mx-auto' : ''
-                  }`}
+                  className="relative shadow-sm border rounded select-none"
                   style={{
                     width: imageNaturalSize?.width || undefined,
                     height: imageNaturalSize?.height || undefined,
                     transform: `scale(${Math.max(0.01, zoom / 100)})`,
                     transformOrigin: 'top left',
-                    marginTop: imageNaturalSize?.height && imageNaturalSize?.width ? 
-                      (imageNaturalSize.height / imageNaturalSize.width >= 2 ? '0' : '32px') : '32px',
+                    marginTop: '32px'
                   }}
                 >
                   <img
