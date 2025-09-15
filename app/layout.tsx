@@ -7,9 +7,31 @@ import { Suspense } from "react"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Pixie - AI-Powered Design Editor",
-  description: "Transform UI components with AI",
+  title: "Pixie - Your AI Design Partner",
+  description: "Transform UI components with AI-powered voice commands and real-time design modifications",
   generator: "v0.app",
+  openGraph: {
+    title: "Pixie - Your AI Design Partner",
+    description: "Transform UI components with AI-powered voice commands and real-time design modifications",
+    url: "https://pixiedesign.vercel.app",
+    siteName: "Pixie",
+    images: [
+      {
+        url: "/api/og",
+        width: 1200,
+        height: 630,
+        alt: "Pixie - Your AI Design Partner",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Pixie - Your AI Design Partner",
+    description: "Transform UI components with AI-powered voice commands and real-time design modifications",
+    images: ["/api/og"],
+  },
 }
 
 export default function RootLayout({
