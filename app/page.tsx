@@ -1017,15 +1017,8 @@ export default function FigmaAIApp() {
       if (result.success) {
         const newImage = result.screenshot
         
-        // Calculate optimal zoom to fit image in canvas
-        const img = new Image()
-        await new Promise((resolve) => {
-          img.onload = resolve
-          img.src = newImage
-        })
-        
-        // Set zoom to 75% for imported websites
-        setZoom(75)
+        // Keep original dimensions by setting zoom to 100%
+        setZoom(100)
         
         setImportedImage(newImage)
         setImportMetadata(result.metadata)

@@ -74,13 +74,23 @@ export class VoiceConversationService {
         resolve()
       }
 
-      this.currentAudio.onerror = () => {
+      this.currentAudio.onerror = (e) => {
+        console.error('Audio playback error:', e)
         URL.revokeObjectURL(audioUrl)
         this.currentAudio = null
         reject(new Error('Failed to play audio'))
       }
 
-      this.currentAudio.play()
+      // Play the audio with error handling
+      this.currentAudio.play().catch(error => {
+        console.error('Audio playback failed:', error)
+        if (error.name === 'NotAllowedError') {
+          // If autoplay is blocked, we need user interaction
+          reject(new Error('Audio playback requires user interaction. Please click a button or interact with the page first.'))
+        } else {
+          reject(error)
+        }
+      })
     })
   }
 

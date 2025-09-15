@@ -53,7 +53,7 @@ export async function POST(request: Request) {
             '--disable-gpu',
             '--window-size=1280,800'
           ],
-      defaultViewport: isProduction ? chromium.defaultViewport : { width: 1280, height: 800 },
+      defaultViewport: null, // Let the page determine its own viewport size
       executablePath: executablePath,
       headless: isProduction ? chromium.headless : 'new',
       ignoreDefaultArgs: isProduction ? ['--disable-extensions'] : false,
