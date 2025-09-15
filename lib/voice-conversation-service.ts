@@ -30,7 +30,7 @@ export class VoiceConversationService {
   }
 
   // Convert text to speech using ElevenLabs
-  async textToSpeech(text: string, voiceId: string = 'pNInz6obpgDQGcFmaJgB'): Promise<Blob> {
+  async textToSpeech(text: string, voiceId: string = 'WtA85syCrJwasGeHGH2p'): Promise<Blob> {
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: 'POST',
       headers: {
