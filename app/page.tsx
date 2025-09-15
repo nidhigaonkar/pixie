@@ -114,6 +114,8 @@ export default function FigmaAIApp() {
     needsClarification: false
   })
   const voiceServiceRef = useRef<VoiceConversationService | null>(null)
+  const currentImageRef = useRef<string | null>(null)
+  const currentHistoryIndexRef = useRef<number>(-1)
 
   // Encrypted storage utilities
   const encryptData = (data: string): string => {
@@ -460,7 +462,7 @@ export default function FigmaAIApp() {
 
     } catch (error) {
       console.error('Error starting live mode:', error)
-      setError(`Failed to start Live Mode: ${error.message}`)
+      setError(`Failed to start Live Mode: ${error instanceof Error ? error.message : 'Unknown error'}`)
       
       // Reset state
       setVoiceConversationState({
@@ -623,6 +625,12 @@ export default function FigmaAIApp() {
 
         // Apply changes in background
         handleSelectionSubmitWithPrompt(userText).then(() => {
+          // Clear the current prompt only after successful transformation
+          setVoiceConversationState(prev => ({
+            ...prev,
+            currentPrompt: ''
+          }))
+          
           // After changes are applied, give feedback and prompt for next request
           if (voiceServiceRef.current && voiceConversationState.isActive) {
             speakToUser("Changes applied! What would you like to modify next?").then(() => {
@@ -632,6 +640,12 @@ export default function FigmaAIApp() {
           }
         }).catch((error) => {
           console.error('Failed to apply changes:', error)
+          // Clear the current prompt even on error to avoid confusion
+          setVoiceConversationState(prev => ({
+            ...prev,
+            currentPrompt: ''
+          }))
+          
           if (voiceServiceRef.current && voiceConversationState.isActive) {
             speakToUser("Sorry, I couldn't apply those changes. Please try again or describe what you'd like differently.").then(() => {
               // Start listening again after error
@@ -1000,6 +1014,30 @@ export default function FigmaAIApp() {
     }
   }, [])
 
+  // Keep ref in sync with importedImage state
+  useEffect(() => {
+    currentImageRef.current = importedImage
+    console.log('🔄 Updated currentImageRef:', {
+      hasImage: !!importedImage,
+      imageLength: importedImage?.length,
+      imagePrefix: importedImage?.substring(0, 50)
+    })
+  }, [importedImage])
+
+  // Track imageHistory changes and sync refs
+  useEffect(() => {
+    currentHistoryIndexRef.current = currentHistoryIndex
+    console.log('📚 ImageHistory changed:', {
+      length: imageHistory.length,
+      currentIndex: currentHistoryIndex,
+      entries: imageHistory.map((h, i) => ({ 
+        index: i, 
+        prompt: h.prompt || h.description,
+        timestamp: h.timestamp 
+      }))
+    })
+  }, [imageHistory, currentHistoryIndex])
+
   const handleCanvasMouseDown = useCallback((event: React.MouseEvent) => {
     const canvas = canvasRef.current
     const leftClick = event.button === 0
@@ -1359,9 +1397,25 @@ export default function FigmaAIApp() {
   }
 
   const handleSelectionSubmitInternal = async (promptText: string) => {
+    // Prevent overlapping transformations
+    if (isProcessingSelection) {
+      console.log('⚠️ Transformation already in progress, skipping')
+      return
+    }
+
+    console.log('🚀 Starting transformation:', {
+      prompt: promptText.trim(),
+      timestamp: Date.now(),
+      currentHistoryIndex: currentHistoryIndex,
+      historyLength: imageHistory.length,
+      isLiveMode: voiceConversationState.isActive,
+      importedImageLength: importedImage?.length
+    })
+    
     // Create default selection if missing (for voice mode)
     let currentSelectionBox = selectionBox
-    if (!currentSelectionBox && selectedAspectRatio && importedImage && promptText.trim()) {
+    const hasImageForTransform = imageHistory.length > 0 || importedImage
+    if (!currentSelectionBox && selectedAspectRatio && hasImageForTransform && promptText.trim()) {
       const defaultWidth = 400
       const defaultHeight = selectedAspectRatio.id === 'freestyle' ? 300 : defaultWidth / selectedAspectRatio.ratio
 
@@ -1375,12 +1429,12 @@ export default function FigmaAIApp() {
       setSelectionBox(currentSelectionBox)
     }
 
-    if (!currentSelectionBox || !selectedAspectRatio || !promptText.trim() || !importedImage) {
+    if (!currentSelectionBox || !selectedAspectRatio || !promptText.trim() || !hasImageForTransform) {
       console.log('Missing requirements for selection submit:', {
         selectionBox: !!currentSelectionBox,
         selectedAspectRatio: !!selectedAspectRatio,
         selectionPrompt: !!promptText.trim(),
-        importedImage: !!importedImage
+        hasImageForTransform: !!hasImageForTransform
       })
       return
     }
@@ -1407,12 +1461,40 @@ export default function FigmaAIApp() {
         throw new Error('Could not create canvas context')
       }
 
-      // Load the image
+      // Get the latest image - use ref to ensure we have the most current value
+      // This is crucial for rapid transformations in voice mode
+      const currentImageForTransformation = currentImageRef.current || 
+        importedImage || 
+        (currentHistoryIndex >= 0 && imageHistory[currentHistoryIndex]?.image) ||
+        null
+      
+      if (!currentImageForTransformation) {
+        throw new Error('No image available for transformation')
+      }
+
+      console.log('🖼️ Using base image for transformation:', {
+        imageLength: currentImageForTransformation?.length,
+        imagePrefix: currentImageForTransformation?.substring(0, 50),
+        source: currentImageRef.current ? 'currentImageRef' : (importedImage ? 'importedImage' : 'history'),
+        currentHistoryIndex,
+        totalHistory: imageHistory.length,
+        refImageLength: currentImageRef.current?.length,
+        refImagePrefix: currentImageRef.current?.substring(0, 50),
+        importedImageLength: importedImage?.length,
+        importedImagePrefix: importedImage?.substring(0, 50),
+        historyImages: imageHistory.map((h, i) => ({ 
+          index: i, 
+          prompt: h.prompt || h.description,
+          hasImage: !!h.image,
+          imagePrefix: h.image?.substring(0, 30)
+        }))
+      })
+
       const img = new Image()
       await new Promise((resolve, reject) => {
         img.onload = resolve
         img.onerror = reject
-        img.src = importedImage
+        img.src = currentImageForTransformation
       })
 
       // Set canvas dimensions to match selection
@@ -1500,12 +1582,12 @@ export default function FigmaAIApp() {
       const result = await response.blob()
       const resultImageUrl = URL.createObjectURL(result)
 
-      // Update the original image by replacing the selected area with the result
+      // Update the current image by replacing the selected area with the result
       const originalImg = new Image()
       await new Promise((resolve, reject) => {
         originalImg.onload = resolve
         originalImg.onerror = reject
-        originalImg.src = importedImage
+        originalImg.src = currentImageForTransformation
       })
 
       const resultImg = new Image()
@@ -1536,16 +1618,56 @@ export default function FigmaAIApp() {
 
       // Convert final canvas to data URL and update the image
       const finalImageUrl = finalCanvas.toDataURL()
-      // Add to image history
-      setImageHistory(prev => [...prev.slice(0, currentHistoryIndex + 1), {
+      // Add to image history with debug logging for voice conversation troubleshooting
+      console.log('🎯 Adding to history:', {
+        promptText: promptText.trim(),
+        currentHistoryIndex,
+        historyLength: imageHistory.length,
+        isVoiceActive: voiceConversationState.isActive
+      })
+      
+      // Copy EXACT normal mode pattern for history creation
+      const newHistoryEntry = {
         image: finalImageUrl,
-        description: selectionPrompt || "Image transformation",
-        prompt: selectionPrompt,
+        description: promptText.trim() || "Image transformation",
+        prompt: promptText.trim(),
         reference: referenceImage || undefined,
         timestamp: Date.now()
-      }])
-      setCurrentHistoryIndex(prev => prev + 1)
+      }
+      
+      console.log('📝 Before history update:', {
+        currentHistoryLength: imageHistory.length,
+        currentIndex: currentHistoryIndex,
+        currentIndexRef: currentHistoryIndexRef.current,
+        newEntryPrompt: newHistoryEntry.prompt
+      })
+      
+      // Use ref to get the most current history index
+      const currentIndex = currentHistoryIndexRef.current
+      
+      setImageHistory(prev => {
+        const newHistory = [...prev.slice(0, currentIndex + 1), newHistoryEntry]
+        console.log('📝 History update:', {
+          previousLength: prev.length,
+          newLength: newHistory.length,
+          slicedAt: currentIndex + 1,
+          usedIndex: currentIndex,
+          previousEntries: prev.map((h, i) => ({ index: i, prompt: h.prompt || h.description })),
+          newEntry: { prompt: newHistoryEntry.prompt, description: newHistoryEntry.description }
+        })
+        return newHistory
+      })
+      
+      // Update both state and ref for history index
+      const newIndex = currentIndex + 1
+      setCurrentHistoryIndex(newIndex)
+      currentHistoryIndexRef.current = newIndex
+      console.log('📝 Index update:', { previous: currentIndex, new: newIndex })
       setImportedImage(finalImageUrl)
+      console.log('✅ Updated importedImage with final result:', {
+        finalImageLength: finalImageUrl.length,
+        finalImagePrefix: finalImageUrl.substring(0, 50)
+      })
 
       // Add to history
       setPromptHistory(prev => [{
