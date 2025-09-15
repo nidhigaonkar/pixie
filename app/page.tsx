@@ -75,7 +75,7 @@ export default function FigmaAIApp() {
   const [showSuccess, setShowSuccess] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [currentView, setCurrentView] = useState<'design'>('design')
-  const [imageHistory, setImageHistory] = useState<{image: string; description: string; prompt?: string; reference?: string; timestamp: number}[]>([])
+  const [imageHistory, setImageHistory] = useState<{image: string; description: string; prompt?: string; reference?: string; timestamp: number; generatedCodeUrl?: string}[]>([])
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1)
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
   const [showPromptPopup, setShowPromptPopup] = useState(false)
@@ -117,6 +117,24 @@ export default function FigmaAIApp() {
   const currentImageRef = useRef<string | null>(null)
   const currentHistoryIndexRef = useRef<number>(-1)
   const currentSelectionBoxRef = useRef<{x: number; y: number; width: number; height: number} | null>(null)
+  const voiceResponseIndexRef = useRef<number>(0)
+
+  // Voice response cycling
+  const getNextVoiceResponse = (): string => {
+    const responses = [
+      "Great! Applying those changes now.",
+      "OK, working on it.",
+      "Alright, I'll make that change.",
+      "Perfect! Let me apply that.",
+      "Got it! Making those updates.",
+      "On it! Applying the changes.",
+      "Sure thing! Working on that now."
+    ]
+    
+    const response = responses[voiceResponseIndexRef.current]
+    voiceResponseIndexRef.current = (voiceResponseIndexRef.current + 1) % responses.length
+    return response
+  }
 
   // Encrypted storage utilities
   const encryptData = (data: string): string => {
@@ -615,7 +633,7 @@ export default function FigmaAIApp() {
           currentPrompt: userText
         }))
         
-        await speakToUser("Perfect! Applying those changes now.")
+        await speakToUser(getNextVoiceResponse())
 
         // Keep listening while changes are being applied
         setVoiceConversationState(prev => ({
@@ -897,7 +915,10 @@ export default function FigmaAIApp() {
         if (currentHistoryIndex > 0) {
           setCurrentHistoryIndex(prev => prev - 1)
           const prevIndex = currentHistoryIndex - 1
-          if (imageHistory[prevIndex]) setImportedImage(imageHistory[prevIndex].image)
+          if (imageHistory[prevIndex]) {
+            setImportedImage(imageHistory[prevIndex].image)
+            setGeneratedCodeUrl(imageHistory[prevIndex].generatedCodeUrl || null)
+          }
         }
       }
 
@@ -907,7 +928,10 @@ export default function FigmaAIApp() {
         if (currentHistoryIndex < imageHistory.length - 1) {
           setCurrentHistoryIndex(prev => prev + 1)
           const nextIndex = currentHistoryIndex + 1
-          if (imageHistory[nextIndex]) setImportedImage(imageHistory[nextIndex].image)
+          if (imageHistory[nextIndex]) {
+            setImportedImage(imageHistory[nextIndex].image)
+            setGeneratedCodeUrl(imageHistory[nextIndex].generatedCodeUrl || null)
+          }
         }
       }
 
@@ -1366,6 +1390,19 @@ export default function FigmaAIApp() {
         const baseUrl = getApiBaseUrl()
         const fullUrl = result.view_url || `${baseUrl}${result.html_path}`
         setGeneratedCodeUrl(fullUrl)
+        
+        // Also store in the current history entry
+        if (currentHistoryIndex >= 0 && imageHistory[currentHistoryIndex]) {
+          setImageHistory(prev => {
+            const newHistory = [...prev]
+            newHistory[currentHistoryIndex] = {
+              ...newHistory[currentHistoryIndex],
+              generatedCodeUrl: fullUrl
+            }
+            return newHistory
+          })
+        }
+        
         console.log('✅ Generated URL stored:', fullUrl)
       } else {
         console.log('❌ No html_path in result:', result)
@@ -1683,6 +1720,8 @@ export default function FigmaAIApp() {
       currentHistoryIndexRef.current = newIndex
       console.log('📝 Index update:', { previous: currentIndex, new: newIndex })
       setImportedImage(finalImageUrl)
+      // Reset generated code URL since we have a new version
+      setGeneratedCodeUrl(null)
       console.log('✅ Updated importedImage with final result:', {
         finalImageLength: finalImageUrl.length,
         finalImagePrefix: finalImageUrl.substring(0, 50)
@@ -1885,6 +1924,7 @@ export default function FigmaAIApp() {
           currentHistoryIndex={currentHistoryIndex}
           setCurrentHistoryIndex={setCurrentHistoryIndex}
           setImportedImage={(img) => setImportedImage(img)}
+          setGeneratedCodeUrl={setGeneratedCodeUrl}
           promptHistory={promptHistory}
         />
 
@@ -1898,6 +1938,7 @@ export default function FigmaAIApp() {
             imageHistory={imageHistory}
             setCurrentHistoryIndex={setCurrentHistoryIndex}
             setImportedImage={(img) => setImportedImage(img)}
+            setGeneratedCodeUrl={setGeneratedCodeUrl}
             isGeneratingCode={isGeneratingCode}
             importedImage={importedImage}
             handleGenerateCode={handleGenerateCode}

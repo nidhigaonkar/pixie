@@ -8,10 +8,11 @@ type PromptHistoryItem = { timestamp: number; prompt: string; requestId: string 
 type Props = {
   leftSidebarOpen: boolean
   setLeftSidebarOpen: (v: (prev: boolean) => boolean) => void
-  imageHistory: {image: string; description: string; prompt?: string; reference?: string; timestamp: number}[]
+  imageHistory: {image: string; description: string; prompt?: string; reference?: string; timestamp: number; generatedCodeUrl?: string}[]
   currentHistoryIndex: number
   setCurrentHistoryIndex: (v: number | ((prev: number) => number)) => void
   setImportedImage: (v: string) => void
+  setGeneratedCodeUrl: (v: string | null) => void
   promptHistory: PromptHistoryItem[]
 }
 
@@ -22,6 +23,7 @@ export default function LeftSidebar({
   currentHistoryIndex,
   setCurrentHistoryIndex,
   setImportedImage,
+  setGeneratedCodeUrl,
   promptHistory,
 }: Props) {
   return (
@@ -50,6 +52,7 @@ export default function LeftSidebar({
                     onClick={() => {
                       setCurrentHistoryIndex(historyIndex)
                       setImportedImage(imageHistory[historyIndex].image)
+                      setGeneratedCodeUrl(imageHistory[historyIndex].generatedCodeUrl || null)
                     }}
                   >
                     <div className="text-gray-900">

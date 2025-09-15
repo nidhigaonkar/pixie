@@ -8,9 +8,10 @@ type Props = {
   zoom: number
   setZoom: (v: number | ((prev: number) => number)) => void
   currentHistoryIndex: number
-  imageHistory: {image: string; description: string; prompt?: string; reference?: string; timestamp: number}[]
+  imageHistory: {image: string; description: string; prompt?: string; reference?: string; timestamp: number; generatedCodeUrl?: string}[]
   setCurrentHistoryIndex: (v: number | ((prev: number) => number)) => void
   setImportedImage: (v: string) => void
+  setGeneratedCodeUrl: (v: string | null) => void
   isGeneratingCode: boolean
   importedImage: string | null
   handleGenerateCode: () => Promise<void>
@@ -31,6 +32,7 @@ export default function CanvasHeader({
   imageHistory,
   setCurrentHistoryIndex,
   setImportedImage,
+  setGeneratedCodeUrl,
   isGeneratingCode,
   importedImage,
   handleGenerateCode,
@@ -79,7 +81,10 @@ export default function CanvasHeader({
               if (currentHistoryIndex > 0) {
                 setCurrentHistoryIndex((prev) => (typeof prev === 'number' ? prev - 1 : currentHistoryIndex - 1))
                 const nextIndex = currentHistoryIndex - 1
-                if (imageHistory[nextIndex]) setImportedImage(imageHistory[nextIndex].image)
+                if (imageHistory[nextIndex]) {
+                  setImportedImage(imageHistory[nextIndex].image)
+                  setGeneratedCodeUrl(imageHistory[nextIndex].generatedCodeUrl || null)
+                }
               }
             }}
             disabled={currentHistoryIndex <= 0}
@@ -98,7 +103,10 @@ export default function CanvasHeader({
               if (currentHistoryIndex < imageHistory.length - 1) {
                 setCurrentHistoryIndex((prev) => (typeof prev === 'number' ? prev + 1 : currentHistoryIndex + 1))
                 const nextIndex = currentHistoryIndex + 1
-                if (imageHistory[nextIndex]) setImportedImage(imageHistory[nextIndex].image)
+                if (imageHistory[nextIndex]) {
+                  setImportedImage(imageHistory[nextIndex].image)
+                  setGeneratedCodeUrl(imageHistory[nextIndex].generatedCodeUrl || null)
+                }
               }
             }}
             disabled={currentHistoryIndex >= imageHistory.length - 1}
