@@ -41,15 +41,6 @@ export default function TopBar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 w-8 p-0 bg-red-50 hover:bg-red-100 text-red-600 rounded-md"
-          onClick={() => window.open('mailto:pixie@workmail.com?subject=Pixie%20Feedback', '_blank')}
-          title="Contact us"
-        >
-          💌
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
           className="h-8 px-3 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-md"
           onClick={() => {
             setTempGeminiApiKey(geminiApiKey)
@@ -74,6 +65,15 @@ export default function TopBar({
           onClick={() => setShowUsageGuideModal(true)}
         >
           Usage Guide
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0 bg-red-50 hover:bg-red-100 text-red-600 rounded-md"
+          onClick={() => window.open('mailto:pixie@workmail.com?subject=Pixie%20Feedback', '_blank')}
+          title="Contact us"
+        >
+          💌
         </Button>
       </div>
     </div>
