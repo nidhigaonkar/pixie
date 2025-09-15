@@ -116,6 +116,7 @@ export default function FigmaAIApp() {
   const voiceServiceRef = useRef<VoiceConversationService | null>(null)
   const currentImageRef = useRef<string | null>(null)
   const currentHistoryIndexRef = useRef<number>(-1)
+  const currentSelectionBoxRef = useRef<{x: number; y: number; width: number; height: number} | null>(null)
 
   // Encrypted storage utilities
   const encryptData = (data: string): string => {
@@ -1038,6 +1039,15 @@ export default function FigmaAIApp() {
     })
   }, [imageHistory, currentHistoryIndex])
 
+  // Keep selection box ref in sync
+  useEffect(() => {
+    currentSelectionBoxRef.current = selectionBox
+    console.log('📦 Updated currentSelectionBoxRef:', {
+      hasSelection: !!selectionBox,
+      position: selectionBox ? { x: selectionBox.x, y: selectionBox.y, width: selectionBox.width, height: selectionBox.height } : null
+    })
+  }, [selectionBox])
+
   const handleCanvasMouseDown = useCallback((event: React.MouseEvent) => {
     const canvas = canvasRef.current
     const leftClick = event.button === 0
@@ -1412,9 +1422,11 @@ export default function FigmaAIApp() {
       importedImageLength: importedImage?.length
     })
     
-    // Create default selection if missing (for voice mode)
-    let currentSelectionBox = selectionBox
+    // Get the current selection box - use ref to ensure we have the latest position
+    let currentSelectionBox = currentSelectionBoxRef.current || selectionBox
     const hasImageForTransform = imageHistory.length > 0 || importedImage
+    
+    // Create default selection if missing (for voice mode)
     if (!currentSelectionBox && selectedAspectRatio && hasImageForTransform && promptText.trim()) {
       const defaultWidth = 400
       const defaultHeight = selectedAspectRatio.id === 'freestyle' ? 300 : defaultWidth / selectedAspectRatio.ratio
@@ -1427,7 +1439,14 @@ export default function FigmaAIApp() {
       }
 
       setSelectionBox(currentSelectionBox)
+      currentSelectionBoxRef.current = currentSelectionBox
     }
+
+    console.log('📦 Using selection box for transformation:', {
+      hasSelection: !!currentSelectionBox,
+      position: currentSelectionBox ? { x: currentSelectionBox.x, y: currentSelectionBox.y, width: currentSelectionBox.width, height: currentSelectionBox.height } : null,
+      source: currentSelectionBoxRef.current ? 'ref' : 'state'
+    })
 
     if (!currentSelectionBox || !selectedAspectRatio || !promptText.trim() || !hasImageForTransform) {
       console.log('Missing requirements for selection submit:', {
