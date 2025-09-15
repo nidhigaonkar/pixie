@@ -642,9 +642,13 @@ export default function FigmaAIApp() {
           isThinking: false
         }))
 
+        // Set processing state before applying changes
+        setIsProcessingSelection(true)
+        
         // Apply changes in background
         handleSelectionSubmitWithPrompt(userText).then(() => {
-          // Clear the current prompt only after successful transformation
+          // Clear processing state and current prompt after successful transformation
+          setIsProcessingSelection(false)
           setVoiceConversationState(prev => ({
             ...prev,
             currentPrompt: ''
@@ -658,6 +662,8 @@ export default function FigmaAIApp() {
             })
           }
         }).catch((error) => {
+          // Clear processing state on error
+          setIsProcessingSelection(false)
           console.error('Failed to apply changes:', error)
           // Clear the current prompt even on error to avoid confusion
           setVoiceConversationState(prev => ({
@@ -965,15 +971,8 @@ export default function FigmaAIApp() {
       if (result.success) {
         const newImage = result.screenshot
         
-        // Calculate optimal zoom to fit image in canvas
-        const img = new Image()
-        await new Promise((resolve) => {
-          img.onload = resolve
-          img.src = newImage
-        })
-        
-        // Set zoom to 75% for imported websites
-        setZoom(75)
+        // Keep original dimensions by setting zoom to 100%
+        setZoom(100)
         
         setImportedImage(newImage)
         setImportMetadata(result.metadata)

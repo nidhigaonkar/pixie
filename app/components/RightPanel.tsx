@@ -350,7 +350,7 @@ export default function RightPanel({
                     {voiceConversationState.isActive 
                       ? 'Live Mode - Auto Apply' 
                       : isProcessingSelection 
-                        ? 'Processing...' 
+                        ? 'Applying...' 
                         : 'Apply Changes'
                     }
                   </Button>
