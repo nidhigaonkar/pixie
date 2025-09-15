@@ -35,6 +35,7 @@ type Props = {
   voiceConversationState: VoiceConversationState
   onStartLiveMode: () => Promise<void>
   onStopLiveMode: () => void
+  isApplyingLiveModeChanges: boolean
 }
 
 const readFileAsDataURL = (file: File): Promise<string> => {
@@ -79,6 +80,7 @@ export default function RightPanel({
   voiceConversationState,
   onStartLiveMode,
   onStopLiveMode,
+  isApplyingLiveModeChanges,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -344,13 +346,18 @@ export default function RightPanel({
                   </div>
                   <Button
                     onClick={handleSelectionSubmit}
-                    disabled={isProcessingSelection || !selectionPrompt.trim() || voiceConversationState.isActive}
+                    disabled={isProcessingSelection || isApplyingLiveModeChanges || !selectionPrompt.trim() || voiceConversationState.isActive}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
                   >
                     {voiceConversationState.isActive 
                       ? 'Live Mode - Auto Apply' 
-                      : isProcessingSelection 
-                        ? 'Processing...' 
+                      : (isProcessingSelection || isApplyingLiveModeChanges)
+                        ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            {isApplyingLiveModeChanges ? 'Applying...' : 'Processing...'}
+                          </>
+                        )
                         : 'Apply Changes'
                     }
                   </Button>

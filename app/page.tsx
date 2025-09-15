@@ -67,6 +67,7 @@ export default function FigmaAIApp() {
   const [selectionPrompt, setSelectionPrompt] = useState("")
   const [referenceImage, setReferenceImage] = useState<string | null>(null)
   const [isProcessingSelection, setIsProcessingSelection] = useState(false)
+  const [isApplyingLiveModeChanges, setIsApplyingLiveModeChanges] = useState(false)
   const [promptHistory, setPromptHistory] = useState<{timestamp: number; prompt: string; requestId: string}[]>([])
   const [promptCache, setPromptCache] = useState<{[historyIndex: number]: {instructions: string; assets: any[]}}>({})
   const [showPromptPanel, setShowPromptPanel] = useState(false)
@@ -119,20 +120,55 @@ export default function FigmaAIApp() {
   const currentSelectionBoxRef = useRef<{x: number; y: number; width: number; height: number} | null>(null)
   const voiceResponseIndexRef = useRef<number>(0)
 
-  // Voice response cycling
+  // Voice response cycling - more conversational and designer-like
   const getNextVoiceResponse = (): string => {
     const responses = [
-      "Great! Applying those changes now.",
-      "OK, working on it.",
-      "Alright, I'll make that change.",
-      "Perfect! Let me apply that.",
-      "Got it! Making those updates.",
-      "On it! Applying the changes.",
-      "Sure thing! Working on that now."
+      "Perfect! Let me work on that design change for you.",
+      "Great idea! I'll implement that right away.",
+      "Absolutely! That'll look much better. Working on it now.",
+      "Nice! I can see exactly what you're going for. Applying those changes.",
+      "Love that direction! Let me make those updates.",
+      "Excellent choice! I'll get that styled for you.",
+      "That's going to look fantastic! Making those changes now.",
+      "Smart thinking! Let me apply that design improvement."
     ]
     
     const response = responses[voiceResponseIndexRef.current]
     voiceResponseIndexRef.current = (voiceResponseIndexRef.current + 1) % responses.length
+    return response
+  }
+
+  // Completion responses - varied and designer-like
+  const getCompletionResponse = (): string => {
+    const responses = [
+      "Perfect! I've applied those changes. How does that look? What would you like to refine next?",
+      "Done! The design is updated. What other improvements can we make?",
+      "All set! Those changes are live. What's the next element you'd like to work on?",
+      "Beautiful! I've made those updates. Shall we polish anything else?",
+      "Excellent! The changes are applied. What other design tweaks do you have in mind?",
+      "There we go! Looking good. What would you like to adjust next?",
+      "Perfect execution! The design is updated. Any other elements catching your eye?",
+      "Fantastic! Those changes are in. What's the next area we should focus on?",
+      "All done! I love how that turned out. What else can we enhance?",
+      "Brilliant! The updates are complete. Ready for the next design iteration?"
+    ]
+    
+    const response = responses[Math.floor(Math.random() * responses.length)]
+    return response
+  }
+
+  // Error responses - more supportive and designer-like
+  const getErrorResponse = (): string => {
+    const responses = [
+      "Hmm, I'm having trouble with that change. Could you describe it a bit differently? Maybe be more specific about the element?",
+      "I didn't quite catch that design direction. Could you rephrase what you'd like me to adjust?",
+      "Let me try that again. Could you be more specific about which element you want to modify?",
+      "I'm not sure I understood that correctly. Can you describe the change in a different way?",
+      "That's a tricky one! Could you break it down for me? Which part should I focus on first?",
+      "I want to get this right for you. Could you clarify which element needs the update?"
+    ]
+    
+    const response = responses[Math.floor(Math.random() * responses.length)]
     return response
   }
 
@@ -190,7 +226,8 @@ export default function FigmaAIApp() {
     
     if (savedGeminiApiKey) {
       setGeminiApiKey(savedGeminiApiKey)
-      setIsFreeTier(savedIsFreeTier)
+      // Only set as free tier if the API key is specifically 'FREE_TIER'
+      setIsFreeTier(savedGeminiApiKey === 'FREE_TIER')
     }
     if (savedElevenlabsApiKey) {
       setElevenlabsApiKey(savedElevenlabsApiKey)
@@ -219,11 +256,19 @@ export default function FigmaAIApp() {
   // Save API keys to localStorage
   const saveApiKeys = () => {
     // Allow clearing Gemini API key (set to empty string)
-    setGeminiApiKey(tempGeminiApiKey.trim())
-    if (tempGeminiApiKey.trim()) {
-      localStorage.setItem('gemini_api_key', tempGeminiApiKey.trim())
+    const trimmedApiKey = tempGeminiApiKey.trim()
+    setGeminiApiKey(trimmedApiKey)
+    
+    if (trimmedApiKey) {
+      localStorage.setItem('gemini_api_key', trimmedApiKey)
+      // Set free tier status based on whether the API key is 'FREE_TIER'
+      const isFree = trimmedApiKey === 'FREE_TIER'
+      setIsFreeTier(isFree)
+      localStorage.setItem('is_free_tier', isFree.toString())
     } else {
       localStorage.removeItem('gemini_api_key')
+      localStorage.removeItem('is_free_tier')
+      setIsFreeTier(false)
     }
     
     // ElevenLabs is optional
@@ -633,8 +678,9 @@ export default function FigmaAIApp() {
           currentPrompt: userText
         }))
         
-        await speakToUser(getNextVoiceResponse())
-
+        // Start applying changes immediately
+        setIsApplyingLiveModeChanges(true)
+        
         // Keep listening while changes are being applied
         setVoiceConversationState(prev => ({
           ...prev,
@@ -642,17 +688,22 @@ export default function FigmaAIApp() {
           isThinking: false
         }))
 
-        // Apply changes in background
-        handleSelectionSubmitWithPrompt(userText).then(() => {
+        // Run voice confirmation and change application concurrently
+        const voicePromise = speakToUser(getNextVoiceResponse())
+        const changesPromise = handleSelectionSubmitWithPrompt(userText)
+        
+        // Handle changes completion
+        changesPromise.then(() => {
           // Clear the current prompt only after successful transformation
           setVoiceConversationState(prev => ({
             ...prev,
             currentPrompt: ''
           }))
+          setIsApplyingLiveModeChanges(false)
           
           // After changes are applied, give feedback and prompt for next request
           if (voiceServiceRef.current && voiceConversationState.isActive) {
-            speakToUser("Changes applied! What would you like to modify next?").then(() => {
+            speakToUser(getCompletionResponse()).then(() => {
               // Now start listening for the next request
               listenForUserResponse()
             })
@@ -664,9 +715,10 @@ export default function FigmaAIApp() {
             ...prev,
             currentPrompt: ''
           }))
+          setIsApplyingLiveModeChanges(false)
           
           if (voiceServiceRef.current && voiceConversationState.isActive) {
-            speakToUser("Sorry, I couldn't apply those changes. Please try again or describe what you'd like differently.").then(() => {
+            speakToUser(getErrorResponse()).then(() => {
               // Start listening again after error
               listenForUserResponse()
             })
@@ -2000,7 +2052,7 @@ export default function FigmaAIApp() {
           {/* Canvas */}
           <div
             ref={canvasRef}
-            className="flex-1 overflow-auto bg-[#f1f5f9]"
+            className="flex-1 overflow-auto bg-[#f1f5f9] relative"
             style={{
               backgroundImage:
                 'linear-gradient(to right, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.04) 1px, transparent 1px)',
@@ -2052,6 +2104,12 @@ export default function FigmaAIApp() {
                         }
                       }}
                     >
+                      {/* Small loading indicator near selection box */}
+                      {isApplyingLiveModeChanges && voiceConversationState.isActive && (
+                        <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-white rounded-full shadow-lg border border-gray-200 p-2 flex items-center justify-center z-50">
+                          <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                        </div>
+                      )}
                       {/* Resize Handles */}
                       <div
                         className="absolute w-3 h-3 bg-white border-2 border-blue-500 rounded-full cursor-nw-resize -left-1.5 -top-1.5"
@@ -2141,6 +2199,7 @@ export default function FigmaAIApp() {
           voiceConversationState={voiceConversationState}
           onStartLiveMode={startLiveMode}
           onStopLiveMode={stopLiveMode}
+          isApplyingLiveModeChanges={isApplyingLiveModeChanges}
         />
       </div>
 
